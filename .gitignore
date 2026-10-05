@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Build output
+dist/
+build/
+*.egg-info/
+*.tsbuildinfo
+
+# Compiled output of TypeScript config sources (tsc -b emits these)
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# System / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
+*.pid
+
+# Coverage
+.coverage
+htmlcov/
+coverage.xml
+
+# Playwright
+test-results/
+playwright-report/

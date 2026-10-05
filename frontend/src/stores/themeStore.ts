@@ -1,0 +1,24 @@
+import { create } from 'zustand'
+
+type Theme = 'light' | 'dark'
+
+interface ThemeState {
+  theme: Theme
+  toggleTheme: () => void
+}
+
+function getInitialTheme(): Theme {
+  const stored = localStorage.getItem('theme')
+  if (stored === 'light' || stored === 'dark') return stored
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+export const useThemeStore = create<ThemeState>((set) => ({
+  theme: getInitialTheme(),
+  toggleTheme: () =>
+    set((state) => {
+      const next: Theme = state.theme === 'light' ? 'dark' : 'light'
+      localStorage.setItem('theme', next)
+      return { theme: next }
+    }),
+}))
