@@ -12,10 +12,10 @@ from app.tests.helpers import (
 )
 
 
-async def _setup_activated_lawyer(client: AsyncClient, fake_db):
+async def _setup_activated_lawyer(client: AsyncClient, db):
     lawyer = await register_lawyer(client)
     await create_lawyer_profile(client, lawyer)
-    await activate_lawyer(fake_db, lawyer["user"]["id"])
+    await activate_lawyer(db, lawyer["user"]["id"])
     return lawyer
 
 
@@ -54,8 +54,8 @@ async def test_non_lawyer_cannot_create_profile(client: AsyncClient):
     assert resp.status_code == 403
 
 
-async def test_public_profile_by_user_id(client: AsyncClient, fake_db):
-    lawyer = await _setup_activated_lawyer(client, fake_db)
+async def test_public_profile_by_user_id(client: AsyncClient, db):
+    lawyer = await _setup_activated_lawyer(client, db)
     resp = await client.get(f"/api/v1/lawyers/{lawyer['user']['id']}")
     assert resp.status_code == 200
     assert resp.json()["user_id"] == lawyer["user"]["id"]
@@ -67,8 +67,8 @@ async def test_public_profile_missing_returns_404(client: AsyncClient):
     assert resp.status_code == 404
 
 
-async def test_search_filters_and_returns_verified(client: AsyncClient, fake_db):
-    await _setup_activated_lawyer(client, fake_db)
+async def test_search_filters_and_returns_verified(client: AsyncClient, db):
+    await _setup_activated_lawyer(client, db)
     resp = await client.get("/api/v1/lawyers", params={"category": "family"})
     assert resp.status_code == 200
     body = resp.json()
@@ -80,7 +80,7 @@ async def test_search_filters_and_returns_verified(client: AsyncClient, fake_db)
     assert resp.json()["total"] == 1
 
 
-async def test_search_excludes_unverified_by_default_filter(client: AsyncClient, fake_db):
+async def test_search_excludes_unverified_by_default_filter(client: AsyncClient, db):
     # A lawyer who has a profile but is PENDING_VERIFICATION should be returned
     # by the directory list (it only excludes REJECTED/SUSPENDED).
     lawyer = await register_lawyer(client)

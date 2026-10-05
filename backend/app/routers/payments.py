@@ -1,8 +1,8 @@
-﻿from typing import Annotated
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import CurrentUser, require_db
 from app.models.platform import PaymentStatus
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/payments", tags=["payments"])
 async def create_payment(
     payload: PaymentCreate,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     appointments = AppointmentRepository(db)
     appointment = await appointments.find_by_id(payload.appointment_id)
@@ -53,7 +53,7 @@ async def create_payment(
 @router.get("")
 async def list_payments(
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
@@ -71,7 +71,7 @@ async def list_payments(
 async def download_receipt(
     payment_id: str,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     payments = PaymentRepository(db)
     payment = await payments.find_by_id(payment_id)

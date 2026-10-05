@@ -1,10 +1,17 @@
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Any
+from uuid import uuid4
 
 from httpx import AsyncClient
+from sqlalchemy import select
 
-from app.models.platform import AppointmentStatus
-from app.models.user import LawyerStatus, UserStatus
+from app.db.compat import new_id, utcnow
+from app.db.models import Appointment, Notification, Payment, User
+from app.models.platform import AppointmentStatus, LegalCategory
+from app.models.user import LawyerStatus, UserRole, UserStatus
+from app.repositories.lawyer_repository import LawyerRepository
+from app.repositories.notification_repository import NotificationRepository
 from app.tests.helpers import (
     activate_lawyer,
     add_verification_document,
@@ -21,21 +28,71 @@ async def _admin(client: AsyncClient) -> dict[str, Any]:
     return await register_admin(client)
 
 
-def _seed_payment(fake_db: Any, *, user_id: str, amount: float, status: str = "PAID") -> None:
-    fake_db["payments"]._docs.append(
-        {
-            "_id": _new_oid(fake_db),
-            "user_id": user_id,
-            "amount": amount,
-            "status": status,
-            "created_at": datetime.now(timezone.utc),
-        }
+async def _ensure_appointment(db: Any) -> str:
+    """Create a completed appointment so payments have a valid foreign key.
+
+    The old fake had no referential integrity, so tests could invent payment rows
+    pointing at nothing. MySQL enforces the constraint, so the fixture now
+    creates the appointment the payment belongs to.
+    """
+    lawyer = (
+        await db.execute(select(User).where(User.role == UserRole.LAWYER).limit(1))
+    ).scalar_one_or_none()
+    citizen = (
+        await db.execute(select(User).where(User.role == UserRole.USER).limit(1))
+    ).scalar_one_or_none()
+    if lawyer is None or citizen is None:
+        lawyer = User(
+            name="Seed Lawyer",
+            email="seed-lawyer@example.com",
+            password_hash="x",
+            role=UserRole.LAWYER,
+            status=UserStatus.ACTIVE,
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        citizen = User(
+            name="Seed Citizen",
+            email="seed-citizen@example.com",
+            password_hash="x",
+            role=UserRole.USER,
+            status=UserStatus.ACTIVE,
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        db.add_all([lawyer, citizen])
+        await db.flush()
+
+    now = utcnow()
+    appt = Appointment(
+        id=new_id(),
+        lawyer_id=lawyer.id,
+        client_id=citizen.id,
+        category=LegalCategory.FAMILY,
+        start_time=now,
+        end_time=now + timedelta(hours=1),
+        status=AppointmentStatus.COMPLETED,
+        created_at=now,
+        updated_at=now,
     )
+    db.add(appt)
+    await db.commit()
+    return appt.id
 
 
-def _new_oid(fake_db: Any) -> str:
-    n = len(fake_db["payments"]._docs) + 1
-    return f"{n:024x}"
+async def _seed_payment(db: Any, *, user_id: str, amount: float, status: str = "PAID") -> None:
+    db.add(
+        Payment(
+            id=new_id(),
+            appointment_id=await _ensure_appointment(db),
+            payee_id=user_id,
+            amount=Decimal(str(amount)),
+            status=status,
+            reference=f"LC-{uuid4().hex[:10].upper()}",
+            created_at=utcnow(),
+        )
+    )
+    await db.commit()
 
 
 async def test_non_admin_forbidden(client: AsyncClient):
@@ -44,13 +101,13 @@ async def test_non_admin_forbidden(client: AsyncClient):
     assert resp.status_code == 403
 
 
-async def test_dashboard(client: AsyncClient, fake_db):
+async def test_dashboard(client: AsyncClient, db):
     await register_user(client)
     admin = await _admin(client)
     lawyer = await register_lawyer(client)
     await create_lawyer_profile(client, lawyer)
-    _seed_payment(fake_db, user_id=admin["user"]["id"], amount=250.0)
-    _seed_payment(fake_db, user_id=admin["user"]["id"], amount=50.0, status="PENDING")
+    await _seed_payment(db, user_id=admin["user"]["id"], amount=250.0)
+    await _seed_payment(db, user_id=admin["user"]["id"], amount=50.0, status="PENDING")
     resp = await client.get("/api/v1/admin/dashboard", headers=auth_headers(admin))
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -70,7 +127,7 @@ async def test_list_users(client: AsyncClient):
     assert all("id" in u and "password_hash" not in u for u in body["items"])
 
 
-async def test_suspend_user(client: AsyncClient, fake_db):
+async def test_suspend_user(client: AsyncClient, db):
     user = await register_user(client)
     admin = await _admin(client)
     target_id = user["user"]["id"]
@@ -81,7 +138,7 @@ async def test_suspend_user(client: AsyncClient, fake_db):
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == UserStatus.SUSPENDED.value
-    notifs = await fake_db["notifications"].find({"user_id": target_id}).to_list()
+    notifs = (await NotificationRepository(db).list_for_user(target_id))["items"]
     assert any(n.get("title") == "Account suspended" for n in notifs)
 
 
@@ -95,7 +152,7 @@ async def test_cannot_suspend_self(client: AsyncClient):
     assert resp.status_code == 400
 
 
-async def test_approve_lawyer(client: AsyncClient, fake_db):
+async def test_approve_lawyer(client: AsyncClient, db):
     lawyer = await register_lawyer(client)
     await create_lawyer_profile(client, lawyer)
     await add_verification_document(client, lawyer)
@@ -108,11 +165,11 @@ async def test_approve_lawyer(client: AsyncClient, fake_db):
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["verification_status"] == LawyerStatus.ACTIVE.value
-    profile = await fake_db["lawyer_profiles"].find_one({"user_id": lawyer_id})
+    profile = await LawyerRepository(db).find_by_user_id(lawyer_id)
     assert profile["is_verified"] is True
 
 
-async def test_approve_requires_verification_document(client: AsyncClient, fake_db):
+async def test_approve_requires_verification_document(client: AsyncClient, db):
     lawyer = await register_lawyer(client)
     await create_lawyer_profile(client, lawyer)
     admin = await _admin(client)
@@ -123,7 +180,7 @@ async def test_approve_requires_verification_document(client: AsyncClient, fake_
         json={"status": LawyerStatus.ACTIVE.value},
     )
     assert resp.status_code == 422
-    profile = await fake_db["lawyer_profiles"].find_one({"user_id": lawyer_id})
+    profile = await LawyerRepository(db).find_by_user_id(lawyer_id)
     assert profile["verification_status"] == LawyerStatus.PENDING_VERIFICATION.value
     assert profile["is_verified"] is False
 
@@ -191,7 +248,7 @@ async def test_verification_document_private_to_owner(client: AsyncClient):
     assert resp.status_code == 403
 
 
-async def test_delete_verification_document_unlinks_profile(client: AsyncClient, fake_db):
+async def test_delete_verification_document_unlinks_profile(client: AsyncClient, db):
     lawyer = await register_lawyer(client)
     await create_lawyer_profile(client, lawyer)
     _, doc_id = await add_verification_document(client, lawyer)
@@ -199,7 +256,7 @@ async def test_delete_verification_document_unlinks_profile(client: AsyncClient,
         f"/api/v1/documents/{doc_id}", headers=auth_headers(lawyer)
     )
     assert resp.status_code == 204
-    profile = await fake_db["lawyer_profiles"].find_one({"user_id": lawyer["user"]["id"]})
+    profile = await LawyerRepository(db).find_by_user_id(lawyer["user"]["id"])
     assert profile.get("verification_document_id") is None
 
 
@@ -218,7 +275,7 @@ async def test_list_lawyers(client: AsyncClient):
     assert body["items"][0]["user_id"] == lawyer["user"]["id"]
 
 
-async def test_respond_complaint(client: AsyncClient, fake_db):
+async def test_respond_complaint(client: AsyncClient, db):
     user = await register_user(client)
     created = await client.post(
         "/api/v1/complaints",
@@ -252,13 +309,13 @@ async def test_list_complaints(client: AsyncClient):
     assert body["items"][0]["user_name"] == "Test User"
 
 
-async def test_analytics(client: AsyncClient, fake_db):
+async def test_analytics(client: AsyncClient, db):
     await register_user(client)
     admin = await _admin(client)
     lawyer = await register_lawyer(client)
     await create_lawyer_profile(client, lawyer)
-    await activate_lawyer(fake_db, lawyer["user"]["id"])
-    _seed_payment(fake_db, user_id=admin["user"]["id"], amount=100.0)
+    await activate_lawyer(db, lawyer["user"]["id"])
+    await _seed_payment(db, user_id=admin["user"]["id"], amount=100.0)
     resp = await client.get("/api/v1/admin/analytics", headers=auth_headers(admin))
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -286,10 +343,10 @@ async def test_audit_logs(client: AsyncClient):
     assert body["items"][0]["action"] == "user.update_status"
 
 
-async def test_reports(client: AsyncClient, fake_db):
+async def test_reports(client: AsyncClient, db):
     await register_user(client)
     admin = await _admin(client)
-    _seed_payment(fake_db, user_id=admin["user"]["id"], amount=99.0)
+    await _seed_payment(db, user_id=admin["user"]["id"], amount=99.0)
     resp = await client.get(
         "/api/v1/admin/reports/users", headers=auth_headers(admin)
     )
@@ -308,10 +365,10 @@ async def test_unknown_report(client: AsyncClient):
     assert resp.status_code == 404
 
 
-async def test_list_appointments(client: AsyncClient, fake_db):
+async def test_list_appointments(client: AsyncClient, db):
     lawyer = await register_lawyer(client)
     await create_lawyer_profile(client, lawyer)
-    await activate_lawyer(fake_db, lawyer["user"]["id"])
+    await activate_lawyer(db, lawyer["user"]["id"])
     user = await register_user(client)
     start = (datetime.now(timezone.utc) + timedelta(days=2)).replace(
         hour=11, minute=0, second=0, microsecond=0
@@ -346,7 +403,7 @@ async def test_list_appointments(client: AsyncClient, fake_db):
     assert item["status"] == AppointmentStatus.PENDING.value
 
 
-async def test_citizen_cannot_verify_lawyer(client: AsyncClient, fake_db):
+async def test_citizen_cannot_verify_lawyer(client: AsyncClient, db):
     lawyer = await register_lawyer(client)
     await create_lawyer_profile(client, lawyer)
     citizen = await register_user(client)
@@ -356,11 +413,11 @@ async def test_citizen_cannot_verify_lawyer(client: AsyncClient, fake_db):
         json={"status": LawyerStatus.ACTIVE.value},
     )
     assert resp.status_code == 403
-    profile = await fake_db["lawyer_profiles"].find_one({"user_id": lawyer["user"]["id"]})
+    profile = await LawyerRepository(db).find_by_user_id(lawyer["user"]["id"])
     assert profile["verification_status"] == LawyerStatus.PENDING_VERIFICATION.value
 
 
-async def test_lawyer_cannot_verify_lawyer(client: AsyncClient, fake_db):
+async def test_lawyer_cannot_verify_lawyer(client: AsyncClient, db):
     lawyer = await register_lawyer(client)
     await create_lawyer_profile(client, lawyer)
     other_lawyer = await register_lawyer(
@@ -372,11 +429,11 @@ async def test_lawyer_cannot_verify_lawyer(client: AsyncClient, fake_db):
         json={"status": LawyerStatus.ACTIVE.value},
     )
     assert resp.status_code == 403
-    profile = await fake_db["lawyer_profiles"].find_one({"user_id": lawyer["user"]["id"]})
+    profile = await LawyerRepository(db).find_by_user_id(lawyer["user"]["id"])
     assert profile["verification_status"] == LawyerStatus.PENDING_VERIFICATION.value
 
 
-async def test_lawyer_cannot_self_verify_via_profile(client: AsyncClient, fake_db):
+async def test_lawyer_cannot_self_verify_via_profile(client: AsyncClient, db):
     lawyer = await register_lawyer(client)
     await create_lawyer_profile(client, lawyer)
     resp = await client.put(
@@ -398,12 +455,12 @@ async def test_lawyer_cannot_self_verify_via_profile(client: AsyncClient, fake_d
         },
     )
     assert resp.status_code == 200, resp.text
-    profile = await fake_db["lawyer_profiles"].find_one({"user_id": lawyer["user"]["id"]})
+    profile = await LawyerRepository(db).find_by_user_id(lawyer["user"]["id"])
     assert profile["verification_status"] == LawyerStatus.PENDING_VERIFICATION.value
     assert profile["is_verified"] is False
 
 
-async def test_reject_lawyer_stores_reason(client: AsyncClient, fake_db):
+async def test_reject_lawyer_stores_reason(client: AsyncClient, db):
     lawyer = await register_lawyer(client)
     await create_lawyer_profile(client, lawyer)
     admin = await _admin(client)
@@ -416,7 +473,7 @@ async def test_reject_lawyer_stores_reason(client: AsyncClient, fake_db):
     assert resp.status_code == 200, resp.text
     assert resp.json()["verification_status"] == LawyerStatus.REJECTED.value
     assert resp.json()["is_verified"] is False
-    profile = await fake_db["lawyer_profiles"].find_one({"user_id": lawyer_id})
+    profile = await LawyerRepository(db).find_by_user_id(lawyer_id)
     assert profile["rejection_reason"] == "Missing bar council license"
 
     approve = await client.patch(
@@ -433,7 +490,7 @@ async def test_reject_lawyer_stores_reason(client: AsyncClient, fake_db):
         json={"status": LawyerStatus.ACTIVE.value},
     )
     assert approve.status_code == 200, approve.text
-    profile = await fake_db["lawyer_profiles"].find_one({"user_id": lawyer_id})
+    profile = await LawyerRepository(db).find_by_user_id(lawyer_id)
     assert profile["rejection_reason"] is None
     assert profile["is_verified"] is True
 

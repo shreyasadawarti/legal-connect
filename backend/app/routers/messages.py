@@ -1,7 +1,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import CurrentUser, require_db
 from app.repositories.conversation_repository import ConversationRepository
@@ -37,7 +37,7 @@ async def _get_conversation(db, conversation_id: str, user: dict):
 async def list_messages(
     conversation_id: str,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     before: Optional[str] = Query(None),
     page_size: int = Query(50, ge=1, le=100),
 ):
@@ -56,7 +56,7 @@ async def send_message(
     conversation_id: str,
     body: SendMessageRequest,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     conv = await _get_conversation(db, conversation_id, user)
     recipient_id = next(
@@ -82,7 +82,7 @@ async def send_message(
 async def mark_read(
     conversation_id: str,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     await _get_conversation(db, conversation_id, user)
     messages = MessageRepository(db)

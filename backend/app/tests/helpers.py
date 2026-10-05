@@ -3,19 +3,22 @@ from typing import Any
 from fastapi.testclient import TestClient  # noqa: F401  (re-export parity)
 from httpx import AsyncClient
 
-from app.database import get_database
 from app.main import app
-from app.models.user import UserRole
+from app.models.user import LawyerStatus, UserRole
+from app.repositories.lawyer_repository import LawyerRepository
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import hash_password
 
 
 async def _get_app_db():
-    """Resolve the database the app currently uses (test override or real Atlas)."""
-    override = app.dependency_overrides.get(get_database)
-    if override is not None:
-        return await override()
-    return get_database()
+    """Resolve the database session the app currently uses (test override or real MySQL)."""
+    test_session = getattr(app.state, "test_db_session", None)
+    if test_session is not None:
+        return test_session
+    from app.db.session import get_session_factory
+
+    factory = get_session_factory()
+    return factory()
 
 
 async def register(client: AsyncClient, *, name: str, email: str, role: str) -> dict[str, Any]:
@@ -97,11 +100,11 @@ async def create_lawyer_profile(client: AsyncClient, lawyer: dict[str, Any]) -> 
     return resp.json()
 
 
-async def activate_lawyer(fake_db: Any, lawyer_id: str) -> None:
-    await fake_db["lawyer_profiles"].update_one(
-        {"user_id": lawyer_id},
-        {"$set": {"verification_status": "ACTIVE", "is_verified": True}},
+async def activate_lawyer(db: Any, lawyer_id: str) -> None:
+    await LawyerRepository(db).set_verification_status(
+        lawyer_id, LawyerStatus.ACTIVE
     )
+    await db.commit()
 
 
 class _FakeDocumentStorage:

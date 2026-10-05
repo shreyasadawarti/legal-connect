@@ -1,8 +1,18 @@
 import asyncio
-from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
+from app.db.compat import new_id, utcnow
+from app.db.models import Conversation, ConversationParticipant
+from app.db.session import session_scope
+from app.repositories.conversation_repository import (
+    ConversationRepository,
+    pair_key,
+)
+from app.repositories.message_repository import MessageRepository
+from app.services.chat_service import ChatService
 from app.tests.helpers import auth_headers, register_user
 
 
@@ -172,21 +182,39 @@ async def test_missing_conversation_returns_404(chat_users):
     assert resp.status_code == 404
 
 
-async def test_list_conversations_dedups_duplicate_pairs(chat_users, fake_db):
+async def test_duplicate_direct_pair_is_rejected_by_schema(chat_users, db):
+    """One direct conversation per pair is now a database guarantee.
+
+    MongoDB relied on application-level array matching to avoid duplicates, so
+    the old test inserted two rows and asserted the list endpoint deduplicated
+    them. The UNIQUE `pair_key` column makes the duplicate impossible, so that
+    is what this asserts now -- a stronger guarantee, not a weaker test.
+    """
     client, alice, bob = chat_users
-    convos = fake_db["conversations"]
-    now = datetime.now(timezone.utc)
+    repo = ConversationRepository(db)
     participants = sorted([alice["user"]["id"], bob["user"]["id"]])
-    for _ in range(2):
-        await convos.insert_one(
-            {
-                "participants": participants,
-                "type": "direct",
-                "last_message": "",
-                "last_message_at": now,
-                "created_at": now,
-            }
+
+    await repo.create(participants)
+    await db.commit()
+
+    with pytest.raises(IntegrityError):
+        db.add(
+            Conversation(
+                id=new_id(),
+                type="direct",
+                pair_key=pair_key(participants),
+                last_message="",
+                last_message_at=utcnow(),
+                created_at=utcnow(),
+                participants=[
+                    ConversationParticipant(user_id=uid, position=idx)
+                    for idx, uid in enumerate(participants)
+                ],
+            )
         )
+        await db.commit()
+    await db.rollback()
+
     resp = await client.get("/api/v1/conversations", headers=auth_headers(alice))
     assert resp.status_code == 200
     body = resp.json()
@@ -194,72 +222,102 @@ async def test_list_conversations_dedups_duplicate_pairs(chat_users, fake_db):
     assert body["total"] == 1
 
 
-async def test_concurrent_get_or_create_creates_one_conversation(fake_db):
-    from app.repositories.conversation_repository import ConversationRepository
-    from app.repositories.message_repository import MessageRepository
-    from app.services.chat_service import ChatService
+async def test_concurrent_get_or_create_creates_one_conversation(client, db):
+    """Two racing requests for the same pair must yield one conversation.
 
-    chat = ChatService(ConversationRepository(fake_db), MessageRepository(fake_db))
-    first, second = await asyncio.gather(
-        chat.get_or_create_conversation(["u1", "u2"]),
-        chat.get_or_create_conversation(["u1", "u2"]),
-    )
+    Each coroutine gets its own session: sharing one AsyncSession across
+    concurrent tasks is not safe, and this also exercises the unique constraint
+    the way two real HTTP requests would hit it.
+    """
+    alice = await register_user(client, name="Alice", email="alice@example.com")
+    bob = await register_user(client, name="Bob", email="bob@example.com")
+    await db.commit()
+    pair = [alice["user"]["id"], bob["user"]["id"]]
+
+    async def attempt() -> dict:
+        async with session_scope() as own:
+            chat = ChatService(ConversationRepository(own), MessageRepository(own))
+            return await chat.get_or_create_conversation(pair)
+
+    first, second = await asyncio.gather(attempt(), attempt())
     assert str(first["_id"]) == str(second["_id"])
-    remaining = await fake_db["conversations"].find().to_list(length=None)
+
+    remaining = await ConversationRepository(db).list_all()
     assert len(remaining) == 1
 
 
-async def test_merge_duplicate_conversations_preserves_messages(fake_db):
-    from app.repositories.conversation_repository import ConversationRepository
-    from app.repositories.message_repository import MessageRepository
-    from app.services.chat_service import ChatService
+async def test_merge_duplicate_conversations_preserves_messages(client, db):
+    """The repair routine for duplicate conversations imported from MongoDB.
 
-    convos = fake_db["conversations"]
-    msgs = fake_db["messages"]
-    now = datetime.now(timezone.utc)
+    The `uq_conversations_pair_key` index means duplicates can no longer be
+    created through the API, so this test drops the index to reconstruct the
+    legacy state, runs the merge, and restores the index afterwards. That is
+    exactly the situation `merge_duplicate_conversations` exists to fix.
+    """
+    alice = await register_user(client, name="Alice", email="alice@example.com")
+    bob = await register_user(client, name="Bob", email="bob@example.com")
+    carol = await register_user(client, name="Carol", email="carol@example.com")
+    await db.commit()
+
+    convos = ConversationRepository(db)
+    msgs = MessageRepository(db)
+    u1, u2, u3 = alice["user"]["id"], bob["user"]["id"], carol["user"]["id"]
+
+    await db.execute(text("ALTER TABLE conversations DROP INDEX uq_conversations_pair_key"))
+    await db.commit()
+
     ids = []
     for i in range(3):
-        res = await convos.insert_one(
-            {
-                "participants": ["u1", "u2"],
-                "type": "direct",
-                "last_message": f"m{i}",
-                "last_message_at": now,
-                "created_at": now,
-            }
+        now = utcnow()
+        conv = Conversation(
+            id=new_id(),
+            type="direct",
+            pair_key=pair_key(sorted([u1, u2])),
+            last_message=f"m{i}",
+            last_message_at=now,
+            created_at=now,
+            participants=[
+                ConversationParticipant(user_id=uid, position=idx)
+                for idx, uid in enumerate(sorted([u1, u2]))
+            ],
         )
-        ids.append(str(res.inserted_id))
-    for i in range(3):
-        await msgs.insert_one(
-            {
-                "conversation_id": ids[i],
-                "sender_id": "u1",
-                "recipient_id": "u2",
-                "content": f"msg-{i}",
-                "is_read": False,
-                "created_at": now,
-            }
-        )
-    await msgs.insert_one(
-        {
-            "conversation_id": "irelevant",
-            "sender_id": "u1",
-            "recipient_id": "u3",
-            "content": "unrelated",
-            "is_read": False,
-            "created_at": now,
-        }
-    )
+        db.add(conv)
+        ids.append(conv.id)
+    # Distinct pair, so this one must survive untouched.
+    other = await convos.create([u1, u3], last_message="unrelated")
 
-    chat = ChatService(ConversationRepository(fake_db), MessageRepository(fake_db))
+    for i in range(3):
+        await msgs.create(
+            conversation_id=ids[i],
+            sender_id=u1,
+            recipient_id=u2,
+            content=f"msg-{i}",
+        )
+    await msgs.create(
+        conversation_id=str(other["_id"]),
+        sender_id=u1,
+        recipient_id=u3,
+        content="unrelated",
+    )
+    await db.commit()
+
+    chat = ChatService(convos, msgs)
     removed = await chat.merge_duplicate_conversations()
     assert removed == 2
 
-    remaining = await convos.find().to_list(length=None)
-    assert len(remaining) == 1
-    keeper_id = str(remaining[0]["_id"])
-    all_messages = await msgs.find().to_list(length=None)
-    assert len(all_messages) == 4
-    moved = [m for m in all_messages if m["content"].startswith("msg-")]
+    remaining = await convos.list_all()
+    assert len(remaining) == 2
+    assert str(other["_id"]) in {str(c["_id"]) for c in remaining}
+    keeper_id = next(str(c["_id"]) for c in remaining if str(c["_id"]) != str(other["_id"]))
+
+    keeper_messages = await msgs.list_for_conversation(keeper_id, page_size=100)
+    other_messages = await msgs.list_for_conversation(str(other["_id"]), page_size=100)
+    moved = [m for m in keeper_messages["items"] if m["content"].startswith("msg-")]
     assert len(moved) == 3
     assert all(m["conversation_id"] == keeper_id for m in moved)
+    assert [m["content"] for m in other_messages["items"]] == ["unrelated"]
+
+    await db.execute(
+        text("ALTER TABLE conversations ADD UNIQUE INDEX uq_conversations_pair_key (pair_key)")
+    )
+    await db.commit()

@@ -7,7 +7,12 @@ from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
-from app.database import close_mongo_connection, connect_to_mongo
+from app.db.session import (
+    check_connection,
+    dispose_engine,
+    ensure_database_exists,
+    init_schema,
+)
 from app.middleware.rate_limit import limiter
 from app.routers import (
     admin,
@@ -33,9 +38,22 @@ logger = logging.getLogger("legalconnect")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up %s (env=%s)", settings.app_name, settings.app_env)
-    await connect_to_mongo()
+    try:
+        await ensure_database_exists()
+        if settings.auto_create_tables:
+            await init_schema()
+        logger.info(
+            "MySQL ready at %s:%s/%s",
+            settings.mysql_host,
+            settings.mysql_port,
+            settings.mysql_database,
+        )
+    except Exception:
+        # Startup stays non-fatal: /api/v1/health reports the real state and
+        # individual routes surface a clear 503 instead of the process dying.
+        logger.exception("Database initialisation failed; continuing in degraded mode")
     yield
-    await close_mongo_connection()
+    await dispose_engine()
     logger.info("Shutdown complete")
 
 
@@ -105,10 +123,8 @@ async def root():
 
 @app.get("/api/v1/health")
 async def health():
-    from app.database import get_database
-
-    db = get_database()
+    db_ok = await check_connection()
     services = {"api": "ok"}
-    services["mongodb"] = "ok" if db is not None else "not_configured"
-    overall = "ok" if db is not None else "degraded"
+    services["mysql"] = "ok" if db_ok else "unavailable"
+    overall = "ok" if db_ok else "degraded"
     return {"status": overall, "services": services}

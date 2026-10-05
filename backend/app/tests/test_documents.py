@@ -45,7 +45,7 @@ class FakeStorage:
 
 
 @pytest.fixture
-async def doc_client(client, fake_db):
+async def doc_client(client, db):
     storage = FakeStorage()
     app.dependency_overrides[get_document_storage] = lambda: storage
     yield client, storage

@@ -1,7 +1,7 @@
-﻿from typing import Annotated
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import CurrentUser, require_db
 from app.repositories.notification_repository import NotificationRepository
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/notifications", tags=["notifications"])
 @router.get("")
 async def list_notifications(
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
@@ -31,7 +31,7 @@ async def list_notifications(
 @router.get("/unread-count")
 async def unread_count(
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     repo = NotificationRepository(db)
     return {"unread": await repo.count_unread(user["id"])}
@@ -41,7 +41,7 @@ async def unread_count(
 async def mark_read(
     notification_id: str,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     repo = NotificationRepository(db)
     updated = await repo.mark_read(notification_id, user["id"])
@@ -56,7 +56,7 @@ async def mark_read(
 @router.patch("/read-all", status_code=status.HTTP_204_NO_CONTENT)
 async def mark_all_read(
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     await NotificationRepository(db).mark_all_read(user["id"])
 
@@ -65,7 +65,7 @@ async def mark_all_read(
 async def delete_notification(
     notification_id: str,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     await NotificationRepository(db).delete(notification_id, user["id"])
 

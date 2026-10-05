@@ -5,7 +5,7 @@ application that connects citizens with verified lawyers, featuring AI-powered l
 video consultations, secure Cloudinary document sharing, real-time chat, and an admin dashboard.
 
 > **Important:** This project uses **no Firebase and no Docker**. All services are cloud-hosted
-> (MongoDB Atlas, Cloudinary, Vercel, Render/Railway). Optional services degrade gracefully when
+> (MySQL, Cloudinary, Vercel, Render/Railway). Optional services degrade gracefully when
 > not configured.
 
 ---
@@ -15,8 +15,8 @@ video consultations, secure Cloudinary document sharing, real-time chat, and an 
 | Layer | Technology |
 |-------|------------|
 | Frontend | React, Vite, TypeScript, Tailwind CSS, React Router, TanStack Query, Zustand, Axios, React Hook Form, Zod, Recharts, Lucide, Framer Motion, Vitest |
-| Backend | Python 3.12, FastAPI, Pydantic, Motor/PyMongo, JWT, bcrypt, WebSockets, ReportLab, Pytest, HTTPX |
-| Database | MongoDB Atlas |
+| Backend | Python 3.12, FastAPI, Pydantic, SQLAlchemy (async), Alembic, JWT, bcrypt, WebSockets, ReportLab, Pytest, HTTPX |
+| Database | MySQL 8 (local dev; managed host in deployment) |
 | Storage | Cloudinary (private, signed URLs) |
 | Maps | Leaflet + OpenStreetMap |
 | Email | Resend / SMTP |
@@ -29,7 +29,7 @@ video consultations, secure Cloudinary document sharing, real-time chat, and an 
 - Node.js 20+ and npm
 - Python 3.12+
 - Git
-- Cloud accounts: MongoDB Atlas, Cloudinary (Resend/OpenAI optional)
+- Cloud accounts: Cloudinary + a managed MySQL host for deployment (Resend/OpenAI optional)
 
 ---
 
@@ -38,7 +38,7 @@ video consultations, secure Cloudinary document sharing, real-time chat, and an 
 ### 1. Configure environment
 
 Copy `.env.example` to `.env` in the project root and fill in your values
-(especially `MONGODB_URI`, `CLOUDINARY_*`).
+(especially `MYSQL_*`, `CLOUDINARY_*`).
 
 ### 2. Backend
 

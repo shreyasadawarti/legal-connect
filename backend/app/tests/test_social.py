@@ -13,10 +13,10 @@ from app.tests.helpers import (
 )
 
 
-async def _setup_lawyer(client: AsyncClient, fake_db):
+async def _setup_lawyer(client: AsyncClient, db):
     lawyer = await register_lawyer(client)
     await create_lawyer_profile(client, lawyer)
-    await activate_lawyer(fake_db, lawyer["user"]["id"])
+    await activate_lawyer(db, lawyer["user"]["id"])
     return lawyer
 
 
@@ -26,7 +26,7 @@ def _slot():
     return start.isoformat(), (start + timedelta(minutes=60)).isoformat()
 
 
-async def _complete_appointment(client: AsyncClient, fake_db, lawyer, user):
+async def _complete_appointment(client: AsyncClient, db, lawyer, user):
     s, e = _slot()
     appt = await client.post(
         "/api/v1/appointments",
@@ -60,10 +60,10 @@ async def test_profile_update_requires_auth(client: AsyncClient):
     assert resp.status_code in (401, 403)
 
 
-async def test_booking_creates_notification_for_lawyer(client: AsyncClient, fake_db):
-    lawyer = await _setup_lawyer(client, fake_db)
+async def test_booking_creates_notification_for_lawyer(client: AsyncClient, db):
+    lawyer = await _setup_lawyer(client, db)
     user = await register_user(client)
-    appt_id = await _complete_appointment(client, fake_db, lawyer, user)
+    appt_id = await _complete_appointment(client, db, lawyer, user)
     assert appt_id
 
     resp = await client.get("/api/v1/notifications", headers=auth_headers(lawyer))
@@ -74,10 +74,10 @@ async def test_booking_creates_notification_for_lawyer(client: AsyncClient, fake
     assert body["items"][0]["type"] == "APPOINTMENT"
 
 
-async def test_mark_notification_read(client: AsyncClient, fake_db):
-    lawyer = await _setup_lawyer(client, fake_db)
+async def test_mark_notification_read(client: AsyncClient, db):
+    lawyer = await _setup_lawyer(client, db)
     user = await register_user(client)
-    await _complete_appointment(client, fake_db, lawyer, user)
+    await _complete_appointment(client, db, lawyer, user)
 
     resp = await client.get("/api/v1/notifications", headers=auth_headers(lawyer))
     notif_id = resp.json()["items"][0]["id"]
@@ -88,8 +88,8 @@ async def test_mark_notification_read(client: AsyncClient, fake_db):
     assert mark.json()["is_read"] is True
 
 
-async def test_review_creates_and_updates_rating(client: AsyncClient, fake_db):
-    lawyer = await _setup_lawyer(client, fake_db)
+async def test_review_creates_and_updates_rating(client: AsyncClient, db):
+    lawyer = await _setup_lawyer(client, db)
     user = await register_user(client)
     resp = await client.post(
         "/api/v1/reviews",
@@ -103,8 +103,8 @@ async def test_review_creates_and_updates_rating(client: AsyncClient, fake_db):
     assert profile.json()["rating_count"] == 1
 
 
-async def test_duplicate_review_rejected(client: AsyncClient, fake_db):
-    lawyer = await _setup_lawyer(client, fake_db)
+async def test_duplicate_review_rejected(client: AsyncClient, db):
+    lawyer = await _setup_lawyer(client, db)
     user = await register_user(client)
     payload = {"lawyer_id": lawyer["user"]["id"], "rating": 4}
     first = await client.post("/api/v1/reviews", headers=auth_headers(user), json=payload)
@@ -113,8 +113,8 @@ async def test_duplicate_review_rejected(client: AsyncClient, fake_db):
     assert second.status_code == 409
 
 
-async def test_list_reviews_for_lawyer(client: AsyncClient, fake_db):
-    lawyer = await _setup_lawyer(client, fake_db)
+async def test_list_reviews_for_lawyer(client: AsyncClient, db):
+    lawyer = await _setup_lawyer(client, db)
     user = await register_user(client)
     await client.post(
         "/api/v1/reviews",
@@ -138,7 +138,7 @@ async def test_create_complaint(client: AsyncClient):
     assert resp.json()["status"] == "OPEN"
 
 
-async def test_admin_resolves_complaint(client: AsyncClient, fake_db):
+async def test_admin_resolves_complaint(client: AsyncClient, db):
     user = await register_user(client)
     created = await client.post(
         "/api/v1/complaints",
@@ -156,7 +156,7 @@ async def test_admin_resolves_complaint(client: AsyncClient, fake_db):
     assert resp.json()["status"] == "RESOLVED"
 
 
-async def test_non_admin_cannot_resolve_complaint(client: AsyncClient, fake_db):
+async def test_non_admin_cannot_resolve_complaint(client: AsyncClient, db):
     user = await register_user(client)
     created = await client.post(
         "/api/v1/complaints",
@@ -173,10 +173,10 @@ async def test_non_admin_cannot_resolve_complaint(client: AsyncClient, fake_db):
     assert resp.status_code == 403
 
 
-async def test_demo_payment(client: AsyncClient, fake_db):
-    lawyer = await _setup_lawyer(client, fake_db)
+async def test_demo_payment(client: AsyncClient, db):
+    lawyer = await _setup_lawyer(client, db)
     user = await register_user(client)
-    await _complete_appointment(client, fake_db, lawyer, user)
+    await _complete_appointment(client, db, lawyer, user)
     appts = await client.get("/api/v1/appointments", headers=auth_headers(user))
     appt_id = appts.json()["items"][0]["id"]
     resp = await client.post(

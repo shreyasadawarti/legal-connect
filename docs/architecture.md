@@ -16,7 +16,7 @@ flowchart LR
     end
     R -->|HTTP/REST /api/v1| API
     R -->|WebSocket /ws| WS
-    API --> M[(MongoDB Atlas)]
+    API --> M[(MySQL 8)]
     API --> C[(Cloudinary)]
     API --> AI[OpenAI-compatible API]
     API --> EM[(Resend / SMTP)]
@@ -26,7 +26,7 @@ flowchart LR
 ## Layers (Backend)
 
 ```
-routers  →  schemas  →  services  →  repositories  →  models (MongoDB)
+routers  →  schemas  →  services  →  repositories  →  models (SQLAlchemy)
    │                                  │
    └── HTTP / WS + auth + RBAC        └── data access + indexes
 ```
@@ -34,7 +34,7 @@ routers  →  schemas  →  services  →  repositories  →  models (MongoDB)
 - **Routers**: HTTP endpoints under `/api/v1`, WebSocket endpoints under `/ws`.
 - **Schemas**: Pydantic request/response models (validation).
 - **Services**: business logic (auth, appointments, cloudinary, ai, pdf, email).
-- **Repositories**: MongoDB data-access operations (queries, indexes).
+- **Repositories**: MySQL data access via async SQLAlchemy (`AsyncSession`).
 - **Models**: document shapes / collections.
 
 ## Frontend Structure
@@ -47,7 +47,7 @@ routers  →  schemas  →  services  →  repositories  →  models (MongoDB)
 
 ## Security Boundaries
 
-- Frontend never talks directly to MongoDB, Cloudinary, or external AI providers.
+- Frontend never talks directly to MySQL, Cloudinary, or external AI providers.
 - All such calls pass through the authenticated backend.
 - Cloudinary files stored privately; downloads use time-limited signed URLs.
 - Never expose Cloudinary/AI secrets to the React application.

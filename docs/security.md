@@ -22,7 +22,7 @@
 - **JWTs**: HS256, short-lived access tokens + refresh tokens.
 - **CORS**: restricted to configured origins.
 - **Rate limiting**: applied to login and password-reset endpoints.
-- **Input validation**: Pydantic schemas; MongoDB query sanitization.
+- **Input validation**: Pydantic schemas; parameterised SQLAlchemy queries (no string-built SQL).
 - **XSS**: React escapes rendered content; no `dangerouslySetInnerHTML`.
 - **Files**: validate MIME type, extension, and size; safe IDs; private storage.
 - **Audit**: important admin and sensitive document actions recorded in `audit_logs`.

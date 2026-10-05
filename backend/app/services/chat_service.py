@@ -30,10 +30,7 @@ class ChatService:
         async with self._create_locks_guard:
             lock = self._create_locks.setdefault(key, asyncio.Lock())
         async with lock:
-            existing = await self._conversations.find_between(participant_ids)
-            if existing:
-                return existing
-            return await self._conversations.create(participant_ids)
+            return await self._conversations.get_or_create(participant_ids)
 
     async def send_message(
         self,

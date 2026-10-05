@@ -14,7 +14,7 @@ assistance, WebRTC video consultations, secure Cloudinary document sharing, real
 admin dashboard for lawyer verification.
 
 - **Frontend:** `frontend/` (React + Vite + TypeScript + Tailwind)
-- **Backend:** `backend/` (Python 3.12 + FastAPI + MongoDB Atlas)
+- **Backend:** `backend/` (Python 3.12 + FastAPI + MySQL 8 via async SQLAlchemy)
 - **Progress tracker:** `projectwork.md` — read at session start to know what is done/remaining
 
 ---
@@ -22,15 +22,15 @@ admin dashboard for lawyer verification.
 ## Architecture
 
 ### Request flow
-`React Frontend` → `FastAPI Backend` → `MongoDB Atlas` / `Cloudinary` / `OpenAI-compatible API`
+`React Frontend` → `FastAPI Backend` → `MySQL` / `Cloudinary` / `OpenAI-compatible API`
 
-- The frontend NEVER talks directly to MongoDB, Cloudinary, or external AI providers.
+- The frontend NEVER talks directly to MySQL, Cloudinary, or external AI providers.
 - All business logic lives in `backend/app/services/`.
 - Data access lives in `backend/app/repositories/`.
 - HTTP handlers live in `backend/app/routers/` (all under `/api/v1`).
 
 ### Backend layer order
-`routers` → `schemas` → `services` → `repositories` → `models` (MongoDB)
+`routers` → `schemas` → `services` → `repositories` → `models` (SQLAlchemy → MySQL)
 
 ---
 
@@ -38,7 +38,9 @@ admin dashboard for lawyer verification.
 
 1. **NO Firebase** — ever. No code, no dependency.
 2. **NO Docker** — no Dockerfiles, no docker-compose, no container config.
-3. **NO local database/storage** — MongoDB Atlas & Cloudinary cloud services only.
+3. **MySQL is the only database** — no MongoDB, no SQLite. Async SQLAlchemy 2.0 with the
+   `asyncmy` driver. Schema changes go through Alembic migrations (`alembic/versions/`), never by
+   hand-editing tables. Document storage stays with Cloudinary.
 4. **NO hardcoded secrets** — all credentials via environment variables (`.env`, gitignored).
 5. **Never commit secrets** — `.env` is gitignored; provide only `.env.example`.
 6. **Graceful degradation** — optional services (AI, email, Cloudinary) must never crash the app
@@ -59,7 +61,16 @@ cd backend
 python -m venv venv
 venv\Scripts\activate            # Windows
 pip install -r requirements.txt
+python -m alembic upgrade head    # create/update the schema
 python -m uvicorn app.main:app --reload
+```
+
+### Database migrations
+```bash
+cd backend
+python -m alembic revision --autogenerate -m "describe the change"
+python -m alembic upgrade head
+python -m alembic downgrade -1
 ```
 
 ### Frontend
@@ -81,6 +92,11 @@ venv\Scripts\activate
 python -m pytest
 python -m pytest -v
 ```
+
+Tests run against a **real** MySQL database (`MYSQL_TEST_DATABASE`, default `legal_connect_test`),
+never an in-memory fake. Every test drops and recreates the schema, so foreign keys, unique
+constraints, CASCADE deletes and transaction rollback are genuinely exercised. The suite refuses
+to run if `MYSQL_TEST_DATABASE` equals `MYSQL_DATABASE`, so development data is never wiped.
 
 ### Frontend (Vitest)
 ```bash
@@ -110,7 +126,9 @@ npm run test:watch
 ### Backend (Python)
 - Type hints everywhere.
 - Pydantic schemas for all request/response validation.
-- Use Motor (async) for MongoDB.
+- Use SQLAlchemy 2.0 `AsyncSession` for MySQL. Never block the event loop with sync drivers.
+- All IDs are 24-character strings (a stored MongoDB ObjectId hex) in `CHAR(24)` columns, so
+  existing IDs stay valid. Keep them as `str` end-to-end.
 - Routers are thin; business logic in services.
 - Use `from app...` absolute imports.
 

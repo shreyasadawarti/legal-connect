@@ -1,21 +1,23 @@
-from datetime import datetime, timezone
 from typing import Any, Optional
 
-from bson import ObjectId
-from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.compat import utcnow
+from app.db.models import Complaint
+from app.db.serialize import complaint_to_doc
 from app.models.platform import ComplaintStatus
 
 COLLECTION = "complaints"
 
 
 class ComplaintRepository:
-    def __init__(self, db: AsyncIOMotorDatabase) -> None:
-        self.collection: AsyncIOMotorCollection = db[COLLECTION]
+    def __init__(self, db: AsyncSession) -> None:
+        self.db = db
 
     async def ensure_indexes(self) -> None:
-        await self.collection.create_index("user_id")
-        await self.collection.create_index("status")
+        """No-op: constraints live in the MySQL schema now."""
+        return None
 
     async def create(
         self,
@@ -25,27 +27,27 @@ class ComplaintRepository:
         description: str,
         related_appointment_id: Optional[str] = None,
     ) -> dict[str, Any]:
-        now = datetime.now(timezone.utc)
-        doc = {
-            "user_id": user_id,
-            "subject": subject,
-            "description": description,
-            "related_appointment_id": related_appointment_id,
-            "status": ComplaintStatus.OPEN.value,
-            "admin_note": None,
-            "created_at": now,
-            "updated_at": now,
-        }
-        result = await self.collection.insert_one(doc)
-        doc["_id"] = result.inserted_id
-        return doc
+        now = utcnow()
+        row = Complaint(
+            user_id=user_id,
+            subject=subject,
+            description=description,
+            related_appointment_id=related_appointment_id,
+            status=ComplaintStatus.OPEN,
+            admin_note=None,
+            created_at=now,
+            updated_at=now,
+        )
+        self.db.add(row)
+        await self.db.flush()
+        return complaint_to_doc(row)
 
     async def find_by_id(self, complaint_id: str) -> Optional[dict[str, Any]]:
-        try:
-            oid = ObjectId(complaint_id)
-        except Exception:  # noqa: BLE001
-            return None
-        return await self.collection.find_one({"_id": oid})
+        result = await self.db.execute(
+            select(Complaint).where(Complaint.id == complaint_id)
+        )
+        row = result.scalar_one_or_none()
+        return complaint_to_doc(row) if row else None
 
     async def list_for_user(
         self,
@@ -53,14 +55,7 @@ class ComplaintRepository:
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
-        filt = {"user_id": user_id}
-        total = await self.collection.count_documents(filt)
-        skip = (page - 1) * page_size
-        cursor = (
-            self.collection.find(filt).sort("created_at", -1).skip(skip).limit(page_size)
-        )
-        items = [doc for doc in await cursor.to_list(length=page_size)]
-        return {"items": items, "total": total, "page": page, "page_size": page_size}
+        return await self._paginate([Complaint.user_id == user_id], page, page_size)
 
     async def list_all(
         self,
@@ -68,15 +63,25 @@ class ComplaintRepository:
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
-        filt: dict[str, Any] = {}
+        filters = []
         if status:
-            filt["status"] = status.value
-        total = await self.collection.count_documents(filt)
-        skip = (page - 1) * page_size
-        cursor = (
-            self.collection.find(filt).sort("created_at", -1).skip(skip).limit(page_size)
+            filters.append(Complaint.status == status)
+        return await self._paginate(filters, page, page_size)
+
+    async def _paginate(self, filters: list, page: int, page_size: int) -> dict[str, Any]:
+        count_q = select(func.count()).select_from(Complaint)
+        list_q = select(Complaint)
+        for f in filters:
+            count_q = count_q.where(f)
+            list_q = list_q.where(f)
+
+        total = (await self.db.execute(count_q)).scalar_one()
+        result = await self.db.execute(
+            list_q.order_by(Complaint.created_at.desc())
+            .offset(max(page - 1, 0) * page_size)
+            .limit(page_size)
         )
-        items = [doc for doc in await cursor.to_list(length=page_size)]
+        items = [complaint_to_doc(row) for row in result.scalars()]
         return {"items": items, "total": total, "page": page, "page_size": page_size}
 
     async def update_status(
@@ -85,15 +90,40 @@ class ComplaintRepository:
         status: ComplaintStatus,
         admin_note: Optional[str] = None,
     ) -> Optional[dict[str, Any]]:
-        try:
-            oid = ObjectId(complaint_id)
-        except Exception:  # noqa: BLE001
+        result = await self.db.execute(
+            select(Complaint).where(Complaint.id == complaint_id)
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
             return None
-        update: dict[str, Any] = {
-            "status": status.value,
-            "updated_at": datetime.now(timezone.utc),
-        }
+        row.status = status
         if admin_note is not None:
-            update["admin_note"] = admin_note
-        await self.collection.update_one({"_id": oid}, {"$set": update})
-        return await self.find_by_id(complaint_id)
+            row.admin_note = admin_note
+        row.updated_at = utcnow()
+        await self.db.flush()
+        return complaint_to_doc(row)
+
+    # -- analytics (used by the admin dashboard and reports) ---------------
+
+    async def count_all(self) -> int:
+        return (
+            await self.db.execute(select(func.count()).select_from(Complaint))
+        ).scalar_one()
+
+    async def count_by_status(self, status: ComplaintStatus) -> int:
+        return (
+            await self.db.execute(
+                select(func.count())
+                .select_from(Complaint)
+                .where(Complaint.status == status)
+            )
+        ).scalar_one()
+
+    async def count_in_statuses(self, statuses: tuple) -> int:
+        return (
+            await self.db.execute(
+                select(func.count())
+                .select_from(Complaint)
+                .where(Complaint.status.in_(statuses))
+            )
+        ).scalar_one()

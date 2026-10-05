@@ -12,7 +12,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from app.config import settings  # noqa: E402
-from app.database import close_mongo_connection, connect_to_mongo, get_database  # noqa: E402
+from app.db.session import (  # noqa: E402
+    dispose_engine,
+    ensure_database_exists,
+    session_scope,
+    upgrade_schema,
+)
 from app.models.platform import (  # noqa: E402
     AppointmentStatus,
     LegalCategory,
@@ -107,7 +112,7 @@ DEFAULT_PASSWORD = "DemoPass123"
 async def _get_or_create_user(users: UserRepository, name: str, email: str, role: UserRole, city: str):
     existing = await users.find_by_email(email)
     if existing:
-        return existing["id"]
+        return str(existing["_id"])
     created = await users.create(
         name=name,
         email=email,
@@ -121,16 +126,21 @@ async def _get_or_create_user(users: UserRepository, name: str, email: str, role
 
 
 async def run() -> None:
-    if not settings.is_mongodb_configured:
-        print("ERROR: MONGODB_URI is not configured. Add it to .env and retry.")
+    if not settings.is_mysql_configured:
+        print("ERROR: MySQL is not configured. Set MYSQL_HOST/USER/PASSWORD/DATABASE in .env.")
         sys.exit(1)
 
-    await connect_to_mongo()
-    db = get_database()
-    if db is None:
-        print("ERROR: could not connect to MongoDB Atlas.")
-        sys.exit(1)
+    await ensure_database_exists()
+    # Bring the schema up to head rather than relying on create_all, so a fresh
+    # checkout can be seeded in one step and the migration history stays correct.
+    upgrade_schema()
 
+    async with session_scope() as db:
+        await _seed(db)
+    await dispose_engine()
+
+
+async def _seed(db) -> None:
     users = UserRepository(db)
     lawyers_repo = LawyerRepository(db)
     appointments = AppointmentRepository(db)
@@ -223,12 +233,15 @@ async def run() -> None:
                 rating=4 + (n % 2),
                 comment="Good consultation, clear guidance.",
             )
+            # The router recalculates the cached rating after each review; the seed
+            # bypasses that, so `avg_rating` would stay 0.00 and search-by-rating
+            # and the leaderboard would show the wrong numbers.
+            stats = await reviews.rating_average(lawyer_id)
+            await lawyers_repo.update_rating(lawyer_id, stats["avg"], stats["count"])
             print(f"Seeded review for appointment #{n + 1} (rating {review['rating']})")
 
     print("\nSeed complete.")
     print(f"Use default password '{DEFAULT_PASSWORD}' for all seeded accounts.")
-
-    await close_mongo_connection()
 
 
 def main() -> None:

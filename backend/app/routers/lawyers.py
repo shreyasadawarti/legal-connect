@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
 from app.dependencies import require_db, require_roles
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/lawyers", tags=["lawyers"])
 
 
 async def _get_lawyer_profile_for_user(
-    db: AsyncIOMotorDatabase, user_id: str
+    db: AsyncSession, user_id: str
 ) -> tuple[dict, dict]:
     users = UserRepository(db)
     profile_repo = LawyerRepository(db)
@@ -46,7 +46,7 @@ class LawyerVerificationDocumentLink(BaseModel):
 
 @router.get("", response_model=LawyerProfileListResponse)
 async def search_lawyers(
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     q: str | None = None,
     category: str | None = None,
     city: str | None = None,
@@ -95,7 +95,7 @@ async def search_lawyers(
 
 @router.get("/{user_id}", response_model=LawyerProfileResponse)
 async def get_lawyer_profile(
-    user_id: str, db: AsyncIOMotorDatabase = Depends(require_db)
+    user_id: str, db: AsyncSession = Depends(require_db)
 ):
     profile, user = await _get_lawyer_profile_for_user(db, user_id)
     data = serialize_lawyer_profile(profile, user)
@@ -106,7 +106,7 @@ async def get_lawyer_profile(
 @router.get("/me/profile")
 async def get_my_lawyer_profile(
     user: Annotated[dict, Depends(require_roles(UserRole.LAWYER))],
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     profile, account = await _get_lawyer_profile_for_user(db, user["id"])
     return serialize_lawyer_profile(profile, account)
@@ -116,7 +116,7 @@ async def get_my_lawyer_profile(
 async def upsert_my_lawyer_profile(
     payload: LawyerProfileCreate,
     user: Annotated[dict, Depends(require_roles(UserRole.LAWYER))],
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     profile_repo = LawyerRepository(db)
     profile = await profile_repo.find_by_user_id(user["id"])
@@ -135,7 +135,7 @@ async def upsert_my_lawyer_profile(
 async def update_my_lawyer_profile(
     payload: LawyerProfileUpdate,
     user: Annotated[dict, Depends(require_roles(UserRole.LAWYER))],
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     profile_repo = LawyerRepository(db)
     profile = await profile_repo.find_by_user_id(user["id"])
@@ -154,7 +154,7 @@ async def update_my_lawyer_profile(
 async def link_verification_document(
     payload: LawyerVerificationDocumentLink,
     user: Annotated[dict, Depends(require_roles(UserRole.LAWYER))],
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     profile_repo = LawyerRepository(db)
     profile = await profile_repo.find_by_user_id(user["id"])

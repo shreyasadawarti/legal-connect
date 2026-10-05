@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import CurrentUser, require_db
 from app.middleware.rate_limit import limiter
@@ -37,7 +37,7 @@ async def _issue_tokens(user: dict) -> AuthResponse:
 
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("10/minute")
-async def register(request: Request, payload: RegisterRequest, db: AsyncIOMotorDatabase = Depends(require_db)):
+async def register(request: Request, payload: RegisterRequest, db: AsyncSession = Depends(require_db)):
     repo = UserRepository(db)
     existing = await repo.find_by_email(payload.email)
     if existing:
@@ -66,7 +66,7 @@ async def register(request: Request, payload: RegisterRequest, db: AsyncIOMotorD
 
 @router.post("/login", response_model=AuthResponse)
 @limiter.limit("10/minute")
-async def login(request: Request, payload: LoginRequest, db: AsyncIOMotorDatabase = Depends(require_db)):
+async def login(request: Request, payload: LoginRequest, db: AsyncSession = Depends(require_db)):
     repo = UserRepository(db)
     user = await repo.find_by_email(payload.email)
     if not user or not auth_service.verify_password(payload.password, user["password_hash"]):
@@ -92,7 +92,7 @@ async def logout(_: CurrentUser):
 
 @router.post("/refresh", response_model=AuthResponse)
 @limiter.limit("20/minute")
-async def refresh(request: Request, payload: RefreshRequest, db: AsyncIOMotorDatabase = Depends(require_db)):
+async def refresh(request: Request, payload: RefreshRequest, db: AsyncSession = Depends(require_db)):
     token_payload = auth_service.decode_token(payload.refresh_token)
     if token_payload.get("type") != "refresh":
         raise HTTPException(
@@ -112,7 +112,7 @@ async def refresh(request: Request, payload: RefreshRequest, db: AsyncIOMotorDat
 
 @router.post("/forgot-password", status_code=status.HTTP_200_OK)
 @limiter.limit("5/minute")
-async def forgot_password(request: Request, payload: ForgotPasswordRequest, db: AsyncIOMotorDatabase = Depends(require_db)):
+async def forgot_password(request: Request, payload: ForgotPasswordRequest, db: AsyncSession = Depends(require_db)):
     repo = UserRepository(db)
     user = await repo.find_by_email(payload.email)
     if user:
@@ -123,7 +123,7 @@ async def forgot_password(request: Request, payload: ForgotPasswordRequest, db: 
 
 
 @router.post("/reset-password", status_code=status.HTTP_200_OK)
-async def reset_password(payload: ResetPasswordRequest, db: AsyncIOMotorDatabase = Depends(require_db)):
+async def reset_password(payload: ResetPasswordRequest, db: AsyncSession = Depends(require_db)):
     token_payload = auth_service.decode_token(payload.token)
     if token_payload.get("type") != "reset":
         raise HTTPException(
@@ -144,7 +144,7 @@ async def reset_password(payload: ResetPasswordRequest, db: AsyncIOMotorDatabase
 
 
 @router.post("/verify-email", status_code=status.HTTP_200_OK)
-async def verify_email(payload: VerifyEmailRequest, db: AsyncIOMotorDatabase = Depends(require_db)):
+async def verify_email(payload: VerifyEmailRequest, db: AsyncSession = Depends(require_db)):
     token_payload = auth_service.decode_token(payload.token)
     if token_payload.get("type") != "verify_email":
         raise HTTPException(
@@ -169,7 +169,7 @@ async def me(user: CurrentUser) -> UserResponse:
 
 
 @router.patch("/change-password", status_code=status.HTTP_200_OK)
-async def change_password(payload: ChangePasswordRequest, user: CurrentUser, db: AsyncIOMotorDatabase = Depends(require_db)):
+async def change_password(payload: ChangePasswordRequest, user: CurrentUser, db: AsyncSession = Depends(require_db)):
     repo = UserRepository(db)
     current = await repo.find_by_id(user["id"])
     if not current or not auth_service.verify_password(

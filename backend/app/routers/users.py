@@ -1,7 +1,7 @@
-﻿from typing import Annotated
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import CurrentUser, require_db
 from app.repositories.user_repository import UserRepository, serialize_user
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.get("/lookup")
 async def lookup_user(
     email: str = Query(..., min_length=3),
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     repo = UserRepository(db)
     user = await repo.find_by_email(email.lower())
@@ -33,7 +33,7 @@ async def get_my_profile(user: CurrentUser):
 async def update_my_profile(
     payload: ProfileUpdate,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     repo = UserRepository(db)
     fields = {

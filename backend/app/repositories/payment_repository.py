@@ -1,22 +1,25 @@
-from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Optional
 from uuid import uuid4
 
-from bson import ObjectId
-from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.compat import utcnow
+from app.db.models import Payment
+from app.db.serialize import payment_to_doc
 from app.models.platform import PaymentStatus
 
 COLLECTION = "payments"
 
 
 class PaymentRepository:
-    def __init__(self, db: AsyncIOMotorDatabase) -> None:
-        self.collection: AsyncIOMotorCollection = db[COLLECTION]
+    def __init__(self, db: AsyncSession) -> None:
+        self.db = db
 
     async def ensure_indexes(self) -> None:
-        await self.collection.create_index("appointment_id")
-        await self.collection.create_index("payee_id")
+        """No-op: constraints live in the MySQL schema now."""
+        return None
 
     async def create(
         self,
@@ -26,24 +29,24 @@ class PaymentRepository:
         amount: float,
         status: PaymentStatus = PaymentStatus.PAID,
     ) -> dict[str, Any]:
-        doc = {
-            "appointment_id": appointment_id,
-            "payee_id": payee_id,
-            "amount": amount,
-            "status": status.value,
-            "reference": f"LC-{uuid4().hex[:10].upper()}",
-            "created_at": datetime.now(timezone.utc),
-        }
-        result = await self.collection.insert_one(doc)
-        doc["_id"] = result.inserted_id
-        return doc
+        row = Payment(
+            appointment_id=appointment_id,
+            payee_id=payee_id,
+            # Converted to Decimal here so the value round-trips through the
+            # DECIMAL(12,2) column without binary floating-point drift.
+            amount=Decimal(str(amount)),
+            status=status,
+            reference=f"LC-{uuid4().hex[:10].upper()}",
+            created_at=utcnow(),
+        )
+        self.db.add(row)
+        await self.db.flush()
+        return payment_to_doc(row)
 
     async def find_by_id(self, payment_id: str) -> Optional[dict[str, Any]]:
-        try:
-            oid = ObjectId(payment_id)
-        except Exception:  # noqa: BLE001
-            return None
-        return await self.collection.find_one({"_id": oid})
+        result = await self.db.execute(select(Payment).where(Payment.id == payment_id))
+        row = result.scalar_one_or_none()
+        return payment_to_doc(row) if row else None
 
     async def list_for_payee(
         self,
@@ -51,11 +54,50 @@ class PaymentRepository:
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
-        filt = {"payee_id": payee_id}
-        total = await self.collection.count_documents(filt)
-        skip = (page - 1) * page_size
-        cursor = (
-            self.collection.find(filt).sort("created_at", -1).skip(skip).limit(page_size)
+        total = (
+            await self.db.execute(
+                select(func.count()).select_from(Payment).where(
+                    Payment.payee_id == payee_id
+                )
+            )
+        ).scalar_one()
+        result = await self.db.execute(
+            select(Payment)
+            .where(Payment.payee_id == payee_id)
+            .order_by(Payment.created_at.desc())
+            .offset(max(page - 1, 0) * page_size)
+            .limit(page_size)
         )
-        items = [doc for doc in await cursor.to_list(length=page_size)]
+        items = [payment_to_doc(row) for row in result.scalars()]
         return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+    # -- analytics (used by the admin dashboard and reports) ---------------
+
+    async def count_all(self) -> int:
+        return (
+            await self.db.execute(select(func.count()).select_from(Payment))
+        ).scalar_one()
+
+    async def count_by_status(self, status: PaymentStatus) -> int:
+        return (
+            await self.db.execute(
+                select(func.count())
+                .select_from(Payment)
+                .where(Payment.status == status)
+            )
+        ).scalar_one()
+
+    async def sum_by_status(self, status: PaymentStatus) -> float:
+        """Total amount for one status.
+
+        Replaces the MongoDB `$match` + `$group` + `$sum` pipeline. SUM over a
+        DECIMAL column returns None for an empty table, hence the coalesce.
+        """
+        total = (
+            await self.db.execute(
+                select(func.coalesce(func.sum(Payment.amount), 0)).where(
+                    Payment.status == status
+                )
+            )
+        ).scalar_one()
+        return round(float(total), 2)

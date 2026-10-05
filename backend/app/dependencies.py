@@ -3,25 +3,50 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.database import get_database
+from app.db.session import get_session
 from app.models.user import UserRole, UserStatus
 from app.repositories.user_repository import UserRepository, serialize_user
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
-DatabaseDep = Annotated[AsyncIOMotorDatabase | None, Depends(get_database)]
+DatabaseDep = Annotated[AsyncSession, Depends(get_session)]
 
 
-def require_db(db: AsyncIOMotorDatabase | None = Depends(get_database)) -> AsyncIOMotorDatabase:
-    if db is None:
+async def require_db(db: AsyncSession = Depends(get_session)) -> AsyncSession:
+    """Yield a request-scoped SQLAlchemy session.
+
+    Kept under the original `require_db` name and signature shape so the
+    thirteen routers that depend on it need only a type-annotation change.
+
+    Uncommitted work is rolled back on the way out. Individual repositories
+    only `flush()`, so the routers keep controlling transactions and an
+    exception part-way through a request cannot leave half-written rows behind
+    (MongoDB had no such failure mode).
+    """
+    if not settings.is_mysql_configured:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database is not configured. Set MONGODB_URI in your .env file.",
+            detail=(
+                "Database is not configured. Set MYSQL_HOST, MYSQL_USER and "
+                "MYSQL_DATABASE in your .env file."
+            ),
         )
-    return db
+    try:
+        yield db
+    except SQLAlchemyError:
+        await db.rollback()
+        raise
+    except Exception:
+        await db.rollback()
+        raise
+    else:
+        await db.commit()
+    finally:
+        await db.close()
 
 
 def get_document_storage():
@@ -51,7 +76,7 @@ def decode_token(token: str, expected_type: str | None = None) -> dict:
 
 async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
-    db: Annotated[AsyncIOMotorDatabase | None, Depends(get_database)],
+    db: Annotated[AsyncSession, Depends(require_db)],
 ) -> dict:
     if credentials is None or not credentials.credentials:
         raise HTTPException(
@@ -59,7 +84,8 @@ async def get_current_user(
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    db = require_db(db)
+    # `db` already arrived via the require_db dependency, which has confirmed
+    # MySQL is configured.
     payload = decode_token(credentials.credentials, expected_type="access")
     subject = payload.get("sub")
     if not subject:

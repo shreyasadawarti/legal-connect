@@ -1,7 +1,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
 from app.dependencies import CurrentUser, get_document_storage, require_db
@@ -27,7 +27,7 @@ VERIFICATION_MIME_TYPES = {"application/pdf", "image/png", "image/jpeg"}
 
 
 async def _find_accessible(
-    db: AsyncIOMotorDatabase, document_id: str, user: dict, owner_only: bool = False
+    db: AsyncSession, document_id: str, user: dict, owner_only: bool = False
 ):
     docs = DocumentRepository(db)
     doc = await docs.find_by_id(document_id)
@@ -48,7 +48,7 @@ def _storage_error(exc: DocumentStorageError) -> HTTPException:
 @router.post("/upload", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     storage = Depends(get_document_storage), 
     file: UploadFile = File(...),
     title: str = Form(""),
@@ -110,7 +110,7 @@ async def upload_document(
 @router.get("", response_model=DocumentListResponse)
 async def list_documents(
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
@@ -132,7 +132,7 @@ async def list_documents(
 async def get_document(
     document_id: str,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     doc = await _find_accessible(db, document_id, user)
     owner = await UserRepository(db).find_by_id(doc["owner_id"])
@@ -144,7 +144,7 @@ async def get_document(
 async def download_document(
     document_id: str,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     storage = Depends(get_document_storage), 
 ):
     doc = await _find_accessible(db, document_id, user)
@@ -160,7 +160,7 @@ async def share_document(
     document_id: str,
     payload: DocumentShareRequest,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     doc = await _find_accessible(db, document_id, user, owner_only=True)
     users = await UserRepository(db).find_by_ids(payload.user_ids)
@@ -197,7 +197,7 @@ async def revoke_document(
     document_id: str,
     payload: DocumentShareRequest,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     doc = await _find_accessible(db, document_id, user, owner_only=True)
     docs = DocumentRepository(db)
@@ -220,7 +220,7 @@ async def revoke_document(
 async def delete_document(
     document_id: str,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     storage = Depends(get_document_storage), 
 ):
     doc = await _find_accessible(db, document_id, user, owner_only=True)

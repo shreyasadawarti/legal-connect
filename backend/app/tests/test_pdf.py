@@ -18,7 +18,7 @@ def _slot():
     return start.isoformat(), (start + timedelta(minutes=60)).isoformat()
 
 
-async def _complete_appointment(client: AsyncClient, fake_db, lawyer, user):
+async def _complete_appointment(client: AsyncClient, db, lawyer, user):
     s, e = _slot()
     appt = await client.post(
         "/api/v1/appointments",
@@ -34,12 +34,12 @@ async def _complete_appointment(client: AsyncClient, fake_db, lawyer, user):
     return appt.json()["id"]
 
 
-async def _create_paid_payment(client: AsyncClient, fake_db):
+async def _create_paid_payment(client: AsyncClient, db):
     lawyer = await register_lawyer(client)
     await create_lawyer_profile(client, lawyer)
-    await activate_lawyer(fake_db, lawyer["user"]["id"])
+    await activate_lawyer(db, lawyer["user"]["id"])
     user = await register_user(client)
-    appt_id = await _complete_appointment(client, fake_db, lawyer, user)
+    appt_id = await _complete_appointment(client, db, lawyer, user)
     resp = await client.post(
         "/api/v1/payments",
         headers=auth_headers(user),
@@ -49,8 +49,8 @@ async def _create_paid_payment(client: AsyncClient, fake_db):
     return user, resp.json()["id"], resp.json()
 
 
-async def test_download_payment_receipt_pdf(client: AsyncClient, fake_db):
-    user, payment_id, _ = await _create_paid_payment(client, fake_db)
+async def test_download_payment_receipt_pdf(client: AsyncClient, db):
+    user, payment_id, _ = await _create_paid_payment(client, db)
     resp = await client.get(
         f"/api/v1/payments/{payment_id}/receipt",
         headers=auth_headers(user),
@@ -60,8 +60,8 @@ async def test_download_payment_receipt_pdf(client: AsyncClient, fake_db):
     assert resp.content[:4] == b"%PDF"
 
 
-async def test_non_payee_cannot_download_receipt(client: AsyncClient, fake_db):
-    user, payment_id, _ = await _create_paid_payment(client, fake_db)
+async def test_non_payee_cannot_download_receipt(client: AsyncClient, db):
+    user, payment_id, _ = await _create_paid_payment(client, db)
     other = await register_user(client, email=f"otherpdf{id(user)}@example.com", name="Other")
     resp = await client.get(
         f"/api/v1/payments/{payment_id}/receipt",
@@ -79,7 +79,7 @@ async def test_receipt_unknown_payment_404(client: AsyncClient):
     assert resp.status_code == 404
 
 
-async def test_admin_download_report_pdf(client: AsyncClient, fake_db):
+async def test_admin_download_report_pdf(client: AsyncClient, db):
     admin = await register_admin(client)
     resp = await client.get(
         "/api/v1/admin/reports/users/download",

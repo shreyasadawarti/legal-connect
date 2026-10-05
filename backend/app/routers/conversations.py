@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import CurrentUser, require_db
 from app.models.user import UserStatus
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 @router.get("", response_model=ConversationListResponse)
 async def list_conversations(
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
@@ -56,7 +56,7 @@ async def list_conversations(
 async def create_conversation(
     body: CreateConversationRequest,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     other_id = body.other_user_id
     if other_id == user["id"]:

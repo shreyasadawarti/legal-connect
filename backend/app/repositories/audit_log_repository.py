@@ -1,18 +1,22 @@
-from datetime import datetime, timezone
 from typing import Any, Optional
 
-from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.compat import utcnow
+from app.db.models import AuditLog
+from app.db.serialize import audit_log_to_doc
 
 COLLECTION = "audit_logs"
 
 
 class AuditLogRepository:
-    def __init__(self, db: AsyncIOMotorDatabase) -> None:
-        self.collection: AsyncIOMotorCollection = db[COLLECTION]
+    def __init__(self, db: AsyncSession) -> None:
+        self.db = db
 
     async def ensure_indexes(self) -> None:
-        await self.collection.create_index("actor_id")
-        await self.collection.create_index([("actor_id", 1), ("created_at", -1)])
+        """No-op: constraints live in the MySQL schema now."""
+        return None
 
     async def record(
         self,
@@ -23,17 +27,17 @@ class AuditLogRepository:
         entity_id: Optional[str] = None,
         details: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        doc = {
-            "actor_id": actor_id,
-            "action": action,
-            "entity_type": entity_type,
-            "entity_id": entity_id,
-            "details": details,
-            "created_at": datetime.now(timezone.utc),
-        }
-        result = await self.collection.insert_one(doc)
-        doc["_id"] = result.inserted_id
-        return doc
+        row = AuditLog(
+            actor_id=actor_id,
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            details=details,
+            created_at=utcnow(),
+        )
+        self.db.add(row)
+        await self.db.flush()
+        return audit_log_to_doc(row)
 
     async def list_for_actor(
         self,
@@ -41,15 +45,7 @@ class AuditLogRepository:
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
-        total = await self.collection.count_documents({"actor_id": actor_id})
-        cursor = (
-            self.collection.find({"actor_id": actor_id})
-            .sort("created_at", -1)
-            .skip((page - 1) * page_size)
-            .limit(page_size)
-        )
-        items = [doc for doc in await cursor.to_list(length=page_size)]
-        return {"items": items, "total": total, "page": page, "page_size": page_size}
+        return await self._paginate([AuditLog.actor_id == actor_id], page, page_size)
 
     async def list_all(
         self,
@@ -59,18 +55,25 @@ class AuditLogRepository:
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
-        filt: dict[str, Any] = {}
+        filters = []
         if actor_id:
-            filt["actor_id"] = actor_id
+            filters.append(AuditLog.actor_id == actor_id)
         if entity_type:
-            filt["entity_type"] = entity_type
-        total = await self.collection.count_documents(filt)
-        skip = (page - 1) * page_size
-        cursor = (
-            self.collection.find(filt)
-            .sort("created_at", -1)
-            .skip(skip)
+            filters.append(AuditLog.entity_type == entity_type)
+        return await self._paginate(filters, page, page_size)
+
+    async def _paginate(self, filters: list, page: int, page_size: int) -> dict[str, Any]:
+        count_q = select(func.count()).select_from(AuditLog)
+        list_q = select(AuditLog)
+        for f in filters:
+            count_q = count_q.where(f)
+            list_q = list_q.where(f)
+
+        total = (await self.db.execute(count_q)).scalar_one()
+        result = await self.db.execute(
+            list_q.order_by(AuditLog.created_at.desc())
+            .offset(max(page - 1, 0) * page_size)
             .limit(page_size)
         )
-        items = [doc for doc in await cursor.to_list(length=page_size)]
+        items = [audit_log_to_doc(row) for row in result.scalars()]
         return {"items": items, "total": total, "page": page, "page_size": page_size}

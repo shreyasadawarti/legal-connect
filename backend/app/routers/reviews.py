@@ -1,7 +1,7 @@
-﻿from typing import Annotated
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import CurrentUser, require_db
 from app.repositories.lawyer_repository import LawyerRepository
 from app.repositories.review_repository import ReviewRepository
@@ -11,7 +11,7 @@ from app.schemas.review import ReviewCreate, ReviewResponse, serialize_review
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
 
-async def _refresh_lawyer_rating(db: AsyncIOMotorDatabase, lawyer_id: str) -> None:
+async def _refresh_lawyer_rating(db: AsyncSession, lawyer_id: str) -> None:
     reviews = ReviewRepository(db)
     stats = await reviews.rating_average(lawyer_id)
     await LawyerRepository(db).update_rating(lawyer_id, stats["avg"], stats["count"])
@@ -21,7 +21,7 @@ async def _refresh_lawyer_rating(db: AsyncIOMotorDatabase, lawyer_id: str) -> No
 async def create_review(
     payload: ReviewCreate,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     if user["id"] == payload.lawyer_id:
         raise HTTPException(
@@ -54,7 +54,7 @@ async def create_review(
 async def delete_review(
     review_id: str,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     reviews = ReviewRepository(db)
     review = await reviews.find_by_id(review_id)
@@ -69,7 +69,7 @@ async def delete_review(
 @router.get("/{lawyer_id}")
 async def list_lawyer_reviews(
     lawyer_id: str,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):

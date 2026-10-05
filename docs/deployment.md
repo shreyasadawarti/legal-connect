@@ -7,7 +7,7 @@ The platform is designed to deploy **without Docker**. All services are cloud-ho
 ```mermaid
 flowchart LR
     V[Vercel - React SPA] --> B[Render/Railway - FastAPI]
-    B --> M[(MongoDB Atlas)]
+    B --> M[(MySQL 8)]
     B --> C[(Cloudinary)]
     B --> AI[OpenAI-compatible API]
     B --> E[(Resend / SMTP)]
@@ -18,7 +18,7 @@ flowchart LR
 
 Required at runtime (see `.env.example`):
 
-- `MONGODB_URI`, `MONGODB_DATABASE`
+- `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`
 - `JWT_SECRET_KEY`, `SECRET_KEY`
 - `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`
 - `FRONTEND_URL`, `BACKEND_URL`, `CORS_ORIGINS`

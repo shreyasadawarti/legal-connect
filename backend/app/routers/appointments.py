@@ -1,7 +1,7 @@
-﻿from typing import Annotated
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import CurrentUser, require_db
 from app.models.platform import AppointmentStatus, NotificationType
@@ -20,7 +20,7 @@ from app.schemas.appointment import (
 router = APIRouter(prefix="/appointments", tags=["appointments"])
 
 
-async def _name_map(db: AsyncIOMotorDatabase, ids: list[str]) -> dict[str, str]:
+async def _name_map(db: AsyncSession, ids: list[str]) -> dict[str, str]:
     if not ids:
         return {}
     users = await UserRepository(db).find_by_ids(list(set(ids)))
@@ -28,7 +28,7 @@ async def _name_map(db: AsyncIOMotorDatabase, ids: list[str]) -> dict[str, str]:
 
 
 async def _to_response(
-    db: AsyncIOMotorDatabase, doc: dict
+    db: AsyncSession, doc: dict
 ) -> dict:
     names = await _name_map(db, [doc["lawyer_id"], doc["client_id"]])
     result = serialize_appointment(doc)
@@ -38,7 +38,7 @@ async def _to_response(
 
 
 async def _notify(
-    db: AsyncIOMotorDatabase,
+    db: AsyncSession,
     user_id: str,
     notification_type: NotificationType,
     title: str,
@@ -55,7 +55,7 @@ async def _notify(
 
 
 async def _get_participant_appointment(
-    db: AsyncIOMotorDatabase, appointment_id: str, user_id: str
+    db: AsyncSession, appointment_id: str, user_id: str
 ) -> dict:
     appointments = AppointmentRepository(db)
     appointment = await appointments.find_by_id(appointment_id)
@@ -74,7 +74,7 @@ async def _get_participant_appointment(
 async def book_appointment(
     payload: AppointmentCreate,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     if user["id"] == payload.lawyer_id:
         raise HTTPException(
@@ -128,7 +128,7 @@ async def book_appointment(
 @router.get("")
 async def list_appointments(
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     status_filter: str | None = Query(None, alias="status"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -164,7 +164,7 @@ async def list_appointments(
 async def get_appointment(
     appointment_id: str,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     appointment = await _get_participant_appointment(db, appointment_id, user["id"])
     return await _to_response(db, appointment)
@@ -174,7 +174,7 @@ async def get_appointment(
 async def cancel_appointment(
     appointment_id: str,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     appointment = await _get_participant_appointment(db, appointment_id, user["id"])
     appointments = AppointmentRepository(db)
@@ -201,7 +201,7 @@ async def reschedule_appointment(
     appointment_id: str,
     payload: AppointmentReschedule,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     appointment = await _get_participant_appointment(db, appointment_id, user["id"])
     appointments = AppointmentRepository(db)
@@ -229,7 +229,7 @@ async def reschedule_appointment(
 
 
 async def _require_lawyer(
-    db: AsyncIOMotorDatabase, appointment: dict, user_id: str
+    db: AsyncSession, appointment: dict, user_id: str
 ) -> None:
     if appointment["lawyer_id"] != user_id:
         raise HTTPException(
@@ -242,7 +242,7 @@ async def _require_lawyer(
 async def confirm_appointment(
     appointment_id: str,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     appointment = await _get_participant_appointment(db, appointment_id, user["id"])
     await _require_lawyer(db, appointment, user["id"])
@@ -260,7 +260,7 @@ async def confirm_appointment(
 async def reject_appointment(
     appointment_id: str,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     appointment = await _get_participant_appointment(db, appointment_id, user["id"])
     await _require_lawyer(db, appointment, user["id"])
@@ -278,7 +278,7 @@ async def reject_appointment(
 async def complete_appointment(
     appointment_id: str,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     appointment = await _get_participant_appointment(db, appointment_id, user["id"])
     await _require_lawyer(db, appointment, user["id"])

@@ -1,19 +1,22 @@
-from datetime import datetime, timezone
 from typing import Any, Optional
 
-from bson import ObjectId
-from motor.motor_asyncio import AsyncIOMotorCollection, AsyncIOMotorDatabase
+from sqlalchemy import func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.compat import id_to_datetime, utcnow
+from app.db.models import Message
+from app.db.serialize import message_to_doc
 
 COLLECTION = "messages"
 
 
 class MessageRepository:
-    def __init__(self, db: AsyncIOMotorDatabase) -> None:
-        self.collection: AsyncIOMotorCollection = db[COLLECTION]
+    def __init__(self, db: AsyncSession) -> None:
+        self.db = db
 
     async def ensure_indexes(self) -> None:
-        await self.collection.create_index("conversation_id")
-        await self.collection.create_index([("conversation_id", 1), ("created_at", -1)])
+        """No-op: constraints live in the MySQL schema now."""
+        return None
 
     async def create(
         self,
@@ -25,18 +28,18 @@ class MessageRepository:
         message_type: str = "text",
         is_read: bool = False,
     ) -> dict[str, Any]:
-        doc = {
-            "conversation_id": conversation_id,
-            "sender_id": sender_id,
-            "recipient_id": recipient_id,
-            "content": content,
-            "message_type": message_type,
-            "is_read": is_read,
-            "created_at": datetime.now(timezone.utc),
-        }
-        result = await self.collection.insert_one(doc)
-        doc["_id"] = result.inserted_id
-        return doc
+        row = Message(
+            conversation_id=conversation_id,
+            sender_id=sender_id,
+            recipient_id=recipient_id,
+            content=content,
+            message_type=message_type,
+            is_read=is_read,
+            created_at=utcnow(),
+        )
+        self.db.add(row)
+        await self.db.flush()
+        return message_to_doc(row)
 
     async def list_for_conversation(
         self,
@@ -44,50 +47,67 @@ class MessageRepository:
         before: Optional[str] = None,
         page_size: int = 50,
     ) -> dict[str, Any]:
-        filt: dict[str, Any] = {"conversation_id": conversation_id}
-        if before:
-            try:
-                filt["created_at"] = {"$lt": ObjectId(before).generation_time}
-            except Exception:  # noqa: BLE001
-                pass
-        cursor = self.collection.find(filt).sort("created_at", -1).limit(page_size)
-        items = [doc for doc in await cursor.to_list(length=page_size)]
+        """Newest page of a conversation, returned oldest-first for rendering.
+
+        `before` is the id of the oldest message already on screen. Its embedded
+        timestamp still works as a cursor because identifiers keep the
+        ObjectId layout, so existing clients keep working unchanged.
+        """
+        filters = [Message.conversation_id == conversation_id]
+        cursor_time = id_to_datetime(before) if before else None
+        if cursor_time is not None:
+            filters.append(Message.created_at < cursor_time)
+
+        result = await self.db.execute(
+            select(Message)
+            .where(*filters)
+            .order_by(Message.created_at.desc())
+            .limit(page_size)
+        )
+        items = [message_to_doc(row) for row in result.scalars()]
         items.reverse()
         return {"items": items, "has_more": len(items) == page_size}
 
     async def count_unread(self, conversation_id: str, user_id: str) -> int:
-        return await self.collection.count_documents(
-            {
-                "conversation_id": conversation_id,
-                "recipient_id": user_id,
-                "is_read": False,
-            }
-        )
+        return (
+            await self.db.execute(
+                select(func.count())
+                .select_from(Message)
+                .where(
+                    Message.conversation_id == conversation_id,
+                    Message.recipient_id == user_id,
+                    Message.is_read.is_(False),
+                )
+            )
+        ).scalar_one()
 
     async def mark_read(
         self, conversation_id: str, user_id: str, before_id: Optional[str] = None
     ) -> None:
-        filt: dict[str, Any] = {
-            "conversation_id": conversation_id,
-            "recipient_id": user_id,
-            "is_read": False,
-        }
+        # A CHOose(24) comparison reproduces the ObjectId `<=` comparison the
+        # previous implementation used, because identifiers stay monotonic.
+        filters = [
+            Message.conversation_id == conversation_id,
+            Message.recipient_id == user_id,
+            Message.is_read.is_(False),
+        ]
         if before_id:
-            try:
-                filt["_id"] = {"$lte": ObjectId(before_id)}
-            except Exception:  # noqa: BLE001
-                pass
-        await self.collection.update_many(filt, {"$set": {"is_read": True}})
+            filters.append(Message.id <= before_id)
+        await self.db.execute(update(Message).where(*filters).values(is_read=True))
+        await self.db.flush()
 
     async def mark_one_read(self, message_id: str) -> None:
-        try:
-            oid = ObjectId(message_id)
-        except Exception:  # noqa: BLE001
-            return
-        await self.collection.update_one({"_id": oid}, {"$set": {"is_read": True}})
-
-    async def move_conversation(self, from_conversation_id: str, to_conversation_id: str) -> None:
-        await self.collection.update_many(
-            {"conversation_id": from_conversation_id},
-            {"$set": {"conversation_id": to_conversation_id}},
+        await self.db.execute(
+            update(Message).where(Message.id == message_id).values(is_read=True)
         )
+        await self.db.flush()
+
+    async def move_conversation(
+        self, from_conversation_id: str, to_conversation_id: str
+    ) -> None:
+        await self.db.execute(
+            update(Message)
+            .where(Message.conversation_id == from_conversation_id)
+            .values(conversation_id=to_conversation_id)
+        )
+        await self.db.flush()

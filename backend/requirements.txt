@@ -9,8 +9,13 @@ pydantic-settings==2.7.0
 python-dotenv==1.0.1
 email-validator==2.2.0
 
-# MongoDB
-motor==3.6.0
+# Database
+SQLAlchemy==2.0.54
+asyncmy==0.2.10
+alembic==1.20.0
+
+# MongoDB -- only used by the optional one-shot data importer
+# (scripts/migrate_mongodb_to_mysql.py). The application itself no longer uses it.
 pymongo==4.9.2
 
 # Auth

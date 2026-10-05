@@ -1,7 +1,7 @@
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import require_db
 from app.models.platform import LegalCategory
@@ -109,7 +109,7 @@ async def ai_predict_category(
 @router.post("/recommend-lawyers", response_model=AiRecommendResponse)
 async def ai_recommend_lawyers(
     payload: AiRecommendRequest,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     ai=Depends(_get_ai),
 ):
     repo = LawyerRepository(db)
@@ -151,7 +151,7 @@ async def ai_translate(
 
 @router.get("/nearby-lawyers")
 async def ai_nearby_lawyers(
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     lat: Optional[float] = Query(None, ge=-90, le=90),
     lng: Optional[float] = Query(None, ge=-180, le=180),
     radius_km: Optional[float] = Query(None, ge=1, le=20000),

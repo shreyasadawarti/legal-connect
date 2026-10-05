@@ -15,7 +15,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 from app.config import settings  # noqa: E402
-from app.database import close_mongo_connection, connect_to_mongo, get_database  # noqa: E402
+from app.db.session import (  # noqa: E402
+    dispose_engine,
+    ensure_database_exists,
+    session_scope,
+    upgrade_schema,
+)
 from app.models.user import UserRole  # noqa: E402
 from app.repositories.user_repository import UserRepository  # noqa: E402
 from app.services.auth_service import hash_password  # noqa: E402
@@ -24,43 +29,41 @@ from app.services.auth_service import hash_password  # noqa: E402
 async def run(name: str, email: str, password: str) -> None:
     email = email.strip().lower()
 
-    if not settings.is_mongodb_configured:
-        print("ERROR: MONGODB_URI is not configured. Add it to .env and retry.")
+    if not settings.is_mysql_configured:
+        print("ERROR: MySQL is not configured. Set MYSQL_HOST/USER/PASSWORD/DATABASE in .env.")
         sys.exit(1)
 
     if len(password) < 8:
         print("ERROR: password must be at least 8 characters.")
         sys.exit(1)
 
-    await connect_to_mongo()
-    db = get_database()
-    if db is None:
-        print("ERROR: could not connect to MongoDB Atlas.")
-        sys.exit(1)
+    await ensure_database_exists()
+    upgrade_schema()
 
-    users = UserRepository(db)
-    existing = await users.find_by_email(email)
+    async with session_scope() as db:
+        users = UserRepository(db)
+        existing = await users.find_by_email(email)
 
-    if existing:
-        await users.update(
-            str(existing["_id"]),
-            {"role": UserRole.ADMIN.value, "is_email_verified": True},
-        )
-        print(f"Updated existing user '{existing['_id']}' to admin role.")
-    else:
-        created = await users.create(
-            name=name,
-            email=email,
-            password_hash=hash_password(password),
-            role=UserRole.ADMIN,
-        )
-        await users.mark_email_verified(str(created["_id"]))
-        print(f"Created admin user with id '{created['_id']}'.")
+        if existing:
+            await users.update(
+                str(existing["_id"]),
+                {"role": UserRole.ADMIN.value, "is_email_verified": True},
+            )
+            print(f"Updated existing user '{existing['_id']}' to admin role.")
+        else:
+            created = await users.create(
+                name=name,
+                email=email,
+                password_hash=hash_password(password),
+                role=UserRole.ADMIN,
+            )
+            await users.mark_email_verified(str(created["_id"]))
+            print(f"Created admin user with id '{created['_id']}'.")
 
     print(f"Admin email: {email}")
     print("Done.")
 
-    await close_mongo_connection()
+    await dispose_engine()
 
 
 def main() -> None:

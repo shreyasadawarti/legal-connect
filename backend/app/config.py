@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import quote_plus
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -26,7 +27,18 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = 15
     jwt_refresh_token_expire_days: int = 7
 
-    # --- MongoDB Atlas ---
+    # --- MySQL (application database) ---
+    mysql_host: str = "localhost"
+    mysql_port: int = 3306
+    mysql_user: str = "root"
+    mysql_password: str = ""
+    mysql_database: str = "legal_connect"
+    mysql_charset: str = "utf8mb4"
+    # Creates any missing tables on startup. Never drops or alters existing
+    # tables; schema changes are handled by Alembic (`alembic upgrade head`).
+    auto_create_tables: bool = True
+
+    # --- MongoDB (legacy; only used by scripts/migrate_mongodb_to_mysql.py) ---
     mongodb_uri: str = ""
     mongodb_database: str = "legal_connect"
 
@@ -70,7 +82,29 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
     @property
+    def mysql_dsn(self) -> str:
+        """Async SQLAlchemy URL for the local MySQL application database."""
+        return (
+            f"mysql+asyncmy://{self.mysql_user}:{quote_plus(self.mysql_password)}"
+            f"@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}"
+            f"?charset={self.mysql_charset}"
+        )
+
+    @property
+    def mysql_server_dsn(self) -> str:
+        """Server-level URL (no database selected) used to CREATE DATABASE."""
+        return (
+            f"mysql+asyncmy://{self.mysql_user}:{quote_plus(self.mysql_password)}"
+            f"@{self.mysql_host}:{self.mysql_port}/?charset={self.mysql_charset}"
+        )
+
+    @property
+    def is_mysql_configured(self) -> bool:
+        return bool(self.mysql_host and self.mysql_user and self.mysql_database)
+
+    @property
     def is_mongodb_configured(self) -> bool:
+        """Legacy. Only scripts/migrate_mongodb_to_mysql.py needs this now."""
         return bool(self.mongodb_uri)
 
     @property

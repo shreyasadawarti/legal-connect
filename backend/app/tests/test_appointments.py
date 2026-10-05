@@ -19,16 +19,16 @@ def _slot(days: int = 1, hour: int = 10, minutes: int = 0, duration_min: int = 6
     return start.isoformat(), end.isoformat()
 
 
-async def _setup(client: AsyncClient, fake_db):
+async def _setup(client: AsyncClient, db):
     lawyer = await register_lawyer(client)
     await create_lawyer_profile(client, lawyer)
-    await activate_lawyer(fake_db, lawyer["user"]["id"])
+    await activate_lawyer(db, lawyer["user"]["id"])
     user = await register_user(client)
     return lawyer, user
 
 
-async def test_client_books_appointment(client: AsyncClient, fake_db):
-    lawyer, user = await _setup(client, fake_db)
+async def test_client_books_appointment(client: AsyncClient, db):
+    lawyer, user = await _setup(client, db)
     start, end = _slot()
     resp = await client.post(
         "/api/v1/appointments",
@@ -48,7 +48,7 @@ async def test_client_books_appointment(client: AsyncClient, fake_db):
     assert body["client_id"] == user["user"]["id"]
 
 
-async def test_booking_unverified_lawyer_rejected(client: AsyncClient, fake_db):
+async def test_booking_unverified_lawyer_rejected(client: AsyncClient, db):
     lawyer = await register_lawyer(client)
     await create_lawyer_profile(client, lawyer)  # still PENDING_VERIFICATION
     user = await register_user(client)
@@ -65,8 +65,8 @@ async def test_booking_unverified_lawyer_rejected(client: AsyncClient, fake_db):
     assert resp.status_code == 400
 
 
-async def test_booking_self_rejected(client: AsyncClient, fake_db):
-    lawyer, _ = await _setup(client, fake_db)
+async def test_booking_self_rejected(client: AsyncClient, db):
+    lawyer, _ = await _setup(client, db)
     start, end = _slot()
     resp = await client.post(
         "/api/v1/appointments",
@@ -76,8 +76,8 @@ async def test_booking_self_rejected(client: AsyncClient, fake_db):
     assert resp.status_code == 400
 
 
-async def test_anti_double_booking_conflict(client: AsyncClient, fake_db):
-    lawyer, user = await _setup(client, fake_db)
+async def test_anti_double_booking_conflict(client: AsyncClient, db):
+    lawyer, user = await _setup(client, db)
     start, end = _slot()
     payload = {
         "lawyer_id": lawyer["user"]["id"],
@@ -90,8 +90,8 @@ async def test_anti_double_booking_conflict(client: AsyncClient, fake_db):
     assert second.status_code == 409
 
 
-async def test_lawyer_confirms_appointment(client: AsyncClient, fake_db):
-    lawyer, user = await _setup(client, fake_db)
+async def test_lawyer_confirms_appointment(client: AsyncClient, db):
+    lawyer, user = await _setup(client, db)
     start, end = _slot()
     created = await client.post(
         "/api/v1/appointments",
@@ -106,8 +106,8 @@ async def test_lawyer_confirms_appointment(client: AsyncClient, fake_db):
     assert resp.json()["status"] == AppointmentStatus.CONFIRMED.value
 
 
-async def test_only_lawyer_can_confirm(client: AsyncClient, fake_db):
-    lawyer, user = await _setup(client, fake_db)
+async def test_only_lawyer_can_confirm(client: AsyncClient, db):
+    lawyer, user = await _setup(client, db)
     start, end = _slot()
     created = await client.post(
         "/api/v1/appointments",
@@ -121,8 +121,8 @@ async def test_only_lawyer_can_confirm(client: AsyncClient, fake_db):
     assert resp.status_code == 403
 
 
-async def test_client_cancels_appointment(client: AsyncClient, fake_db):
-    lawyer, user = await _setup(client, fake_db)
+async def test_client_cancels_appointment(client: AsyncClient, db):
+    lawyer, user = await _setup(client, db)
     start, end = _slot()
     created = await client.post(
         "/api/v1/appointments",
@@ -137,8 +137,8 @@ async def test_client_cancels_appointment(client: AsyncClient, fake_db):
     assert resp.json()["status"] == AppointmentStatus.CANCELLED.value
 
 
-async def test_reschedule_checks_conflicts(client: AsyncClient, fake_db):
-    lawyer, user = await _setup(client, fake_db)
+async def test_reschedule_checks_conflicts(client: AsyncClient, db):
+    lawyer, user = await _setup(client, db)
     s1, e1 = _slot(days=1, hour=10)
     s2, e2 = _slot(days=1, hour=11)  # overlaps s1/e1
     a1 = await client.post(
@@ -160,8 +160,8 @@ async def test_reschedule_checks_conflicts(client: AsyncClient, fake_db):
     assert resp.status_code == 409
 
 
-async def test_list_only_own_appointments(client: AsyncClient, fake_db):
-    lawyer, user = await _setup(client, fake_db)
+async def test_list_only_own_appointments(client: AsyncClient, db):
+    lawyer, user = await _setup(client, db)
     other = await register_user(client, email="other@example.com", name="Other")
     start, end = _slot()
     await client.post(
@@ -177,8 +177,8 @@ async def test_list_only_own_appointments(client: AsyncClient, fake_db):
     assert resp.json()["total"] == 1
 
 
-async def test_participant_only_can_view_detail(client: AsyncClient, fake_db):
-    lawyer, user = await _setup(client, fake_db)
+async def test_participant_only_can_view_detail(client: AsyncClient, db):
+    lawyer, user = await _setup(client, db)
     other = await register_user(client, email="other@example.com", name="Other")
     start, end = _slot()
     created = await client.post(

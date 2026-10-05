@@ -1,7 +1,7 @@
-﻿from typing import Annotated
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import CurrentUser, require_db, require_roles
 from app.models.platform import ComplaintStatus
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/complaints", tags=["complaints"])
 async def create_complaint(
     payload: ComplaintCreate,
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     repo = ComplaintRepository(db)
     doc = await repo.create(
@@ -44,7 +44,7 @@ async def create_complaint(
 @router.get("")
 async def list_my_complaints(
     user: CurrentUser,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
@@ -61,7 +61,7 @@ async def list_my_complaints(
 @router.get("/all")
 async def list_all_complaints(
     _: Annotated[dict, Depends(require_roles(UserRole.ADMIN))],
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     status_filter: str | None = Query(None, alias="status"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -90,7 +90,7 @@ async def resolve_complaint(
     complaint_id: str,
     payload: ComplaintResolve,
     _: Annotated[dict, Depends(require_roles(UserRole.ADMIN))],
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     repo = ComplaintRepository(db)
     complaint = await repo.find_by_id(complaint_id)

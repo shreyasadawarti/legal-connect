@@ -2,7 +2,7 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_document_storage, require_db, require_roles
 from app.models.platform import AppointmentStatus, ComplaintStatus, PaymentStatus
@@ -13,6 +13,7 @@ from app.repositories.complaint_repository import ComplaintRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.lawyer_repository import LawyerRepository
 from app.repositories.notification_repository import NotificationRepository
+from app.repositories.payment_repository import PaymentRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.admin import (
     AdminAnalyticsResponse,
@@ -38,7 +39,7 @@ AdminDep = Annotated[dict, Depends(require_roles(UserRole.ADMIN))]
 
 
 async def _audit(
-    db: AsyncIOMotorDatabase,
+    db: AsyncSession,
     actor_id: str,
     action: str,
     entity_type: str,
@@ -57,25 +58,25 @@ async def _audit(
 @router.get("/dashboard", response_model=AdminDashboardResponse)
 async def admin_dashboard(
     admin: AdminDep,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
-    total_users = await db["users"].count_documents({})
-    total_lawyer_profiles = await db["lawyer_profiles"].count_documents({})
-    total_appointments = await db["appointments"].count_documents({})
-    total_complaints = await db["complaints"].count_documents({})
-    pending_verifications = await db["lawyer_profiles"].count_documents(
-        {"verification_status": LawyerStatus.PENDING_VERIFICATION.value}
+    users_repo = UserRepository(db)
+    lawyers_repo = LawyerRepository(db)
+    appts_repo = AppointmentRepository(db)
+    complaints_repo = ComplaintRepository(db)
+    payments_repo = PaymentRepository(db)
+
+    total_users = await users_repo.count_all()
+    total_lawyer_profiles = await lawyers_repo.count_all()
+    total_appointments = await appts_repo.count_all()
+    total_complaints = await complaints_repo.count_all()
+    pending_verifications = await lawyers_repo.count_by_status(
+        LawyerStatus.PENDING_VERIFICATION
     )
-    open_complaints = await db["complaints"].count_documents(
-        {"status": {"$in": [ComplaintStatus.OPEN.value, ComplaintStatus.IN_PROGRESS.value]}}
+    open_complaints = await complaints_repo.count_in_statuses(
+        (ComplaintStatus.OPEN, ComplaintStatus.IN_PROGRESS)
     )
-    revenue = await db["payments"].aggregate(
-        [
-            {"$match": {"status": PaymentStatus.PAID.value}},
-            {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
-        ]
-    ).to_list(length=1)
-    total_revenue = round((revenue[0]["total"] if revenue else 0.0), 2)
+    total_revenue = await payments_repo.sum_by_status(PaymentStatus.PAID)
 
     return AdminDashboardResponse(
         total_users=total_users,
@@ -90,7 +91,7 @@ async def admin_dashboard(
 @router.get("/users", response_model=AdminUsersResponse)
 async def admin_list_users(
     admin: AdminDep,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     role: Optional[str] = None,
     user_status: Optional[str] = Query(None, alias="status"),
     q: Optional[str] = None,
@@ -115,7 +116,7 @@ async def admin_update_user_status(
     user_id: str,
     payload: AdminUserStatusRequest,
     admin: AdminDep,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     repo = UserRepository(db)
     target = await repo.find_by_id(user_id)
@@ -145,7 +146,7 @@ async def admin_update_user_status(
 @router.get("/lawyers")
 async def admin_list_lawyers(
     admin: AdminDep,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     verification_status: Optional[str] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -169,7 +170,7 @@ async def admin_set_lawyer_verification(
     lawyer_id: str,
     payload: AdminVerificationRequest,
     admin: AdminDep,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     repo = LawyerRepository(db)
     profile = await repo.find_by_user_id(lawyer_id)
@@ -214,7 +215,7 @@ async def admin_set_lawyer_verification(
 async def admin_get_lawyer_verification_document(
     lawyer_id: str,
     admin: AdminDep,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     storage = Depends(get_document_storage),
 ):
     repo = LawyerRepository(db)
@@ -245,7 +246,7 @@ async def admin_get_lawyer_verification_document(
 @router.get("/appointments", response_model=AdminAppointmentsResponse)
 async def admin_list_appointments(
     admin: AdminDep,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     status_filter: Optional[str] = Query(None, alias="status"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -259,30 +260,27 @@ async def admin_list_appointments(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"Invalid appointment status: {status_filter}",
             ) from exc
-    query: dict = {}
-    if appt_status:
-        query["status"] = appt_status.value
-    total = await db["appointments"].count_documents(query)
-    docs = (
-        await db["appointments"]
-        .find(query)
-        .sort("created_at", -1)
-        .skip((page - 1) * page_size)
-        .limit(page_size)
-        .to_list(length=page_size)
+    listing = await AppointmentRepository(db).list_all_paginated(
+        status=appt_status, page=page, page_size=page_size
     )
+    docs = listing["items"]
     ids = []
     for doc in docs:
         ids.extend([doc.get("lawyer_id"), doc.get("client_id")])
     names = {str(u["_id"]): u.get("name", "") for u in await UserRepository(db).find_by_ids(ids)}
     items = [serialize_appointment_item(doc, names) for doc in docs]
-    return {"items": items, "total": total, "page": page, "page_size": page_size}
+    return {
+        "items": items,
+        "total": listing["total"],
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 @router.get("/complaints")
 async def admin_list_complaints(
     admin: AdminDep,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     complaint_status: Optional[str] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -313,7 +311,7 @@ async def admin_respond_complaint(
     complaint_id: str,
     payload: AdminComplaintResponsePayload,
     admin: AdminDep,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     repo = ComplaintRepository(db)
     complaint = await repo.find_by_id(complaint_id)
@@ -348,41 +346,36 @@ async def admin_respond_complaint(
 @router.get("/analytics", response_model=AdminAnalyticsResponse)
 async def admin_analytics(
     admin: AdminDep,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
+    users_repo = UserRepository(db)
+    lawyers_repo = LawyerRepository(db)
+    appts_repo = AppointmentRepository(db)
+    complaints_repo = ComplaintRepository(db)
+    payments_repo = PaymentRepository(db)
+
     users_by_role = {}
     for r in UserRole:
-        users_by_role[r.value] = await db["users"].count_documents({"role": r.value})
+        users_by_role[r.value] = await users_repo.count_by_role(r)
 
     appointments_by_status = {}
     for s in AppointmentStatus:
-        appointments_by_status[s.value] = await db["appointments"].count_documents({"status": s.value})
+        appointments_by_status[s.value] = await appts_repo.count_by_status(s)
 
     lawyers_by_status = {}
     for s in LawyerStatus:
-        lawyers_by_status[s.value] = await db["lawyer_profiles"].count_documents(
-            {"verification_status": s.value}
-        )
+        lawyers_by_status[s.value] = await lawyers_repo.count_by_status(s)
 
     complaints_by_status = {}
     for s in ComplaintStatus:
-        complaints_by_status[s.value] = await db["complaints"].count_documents({"status": s.value})
+        complaints_by_status[s.value] = await complaints_repo.count_by_status(s)
 
-    appointments_by_month = await db["appointments"].aggregate(
-        [
-            {"$group": {"_id": {"$dateToString": {"format": "%Y-%m", "date": "$created_at"}}, "count": {"$sum": 1}}},
-            {"$sort": {"_id": 1}},
-        ]
-    ).to_list(length=60)
-    month_items = [{"month": m["_id"], "count": m["count"]} for m in appointments_by_month]
+    month_items = await appts_repo.count_by_month(limit=60)
 
-    top_categories = await db["lawyer_profiles"].aggregate(
-        [{"$unwind": "$categories"}, {"$group": {"_id": "$categories", "count": {"$sum": 1}}}, {"$sort": {"count": -1}}, {"$limit": 8}]
-    ).to_list(length=8)
-    category_items = [{"category": c["_id"], "count": c["count"]} for c in top_categories]
+    category_items = await lawyers_repo.category_counts(limit=8)
 
-    top_lawyer_docs = await db["lawyer_profiles"].find({}).sort("avg_rating", -1).limit(5).to_list(length=5)
-    users = await UserRepository(db).find_by_ids([p["user_id"] for p in top_lawyer_docs])
+    top_lawyer_docs = await lawyers_repo.top_rated(limit=5)
+    users = await users_repo.find_by_ids([p["user_id"] for p in top_lawyer_docs])
     user_map = {str(u["_id"]): u for u in users}
     top_lawyers = [
         {
@@ -396,10 +389,7 @@ async def admin_analytics(
 
     revenue_by_status = {}
     for s in PaymentStatus:
-        agg = await db["payments"].aggregate(
-            [{"$match": {"status": s.value}}, {"$group": {"_id": None, "total": {"$sum": "$amount"}}}]
-        ).to_list(length=1)
-        revenue_by_status[s.value] = round((agg[0]["total"] if agg else 0.0), 2)
+        revenue_by_status[s.value] = await payments_repo.sum_by_status(s)
 
     return AdminAnalyticsResponse(
         users_by_role=users_by_role,
@@ -416,7 +406,7 @@ async def admin_analytics(
 @router.get("/audit-logs", response_model=AdminAuditLogsResponse)
 async def admin_audit_logs(
     admin: AdminDep,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
     actor_id: Optional[str] = None,
     entity_type: Optional[str] = None,
     page: int = Query(1, ge=1),
@@ -440,38 +430,37 @@ _REPORT_TYPES = {"users", "lawyers", "appointments", "complaints", "revenue"}
 
 
 async def _build_report_summary(
-    db: AsyncIOMotorDatabase, report_type: str
+    db: AsyncSession, report_type: str
 ) -> dict:
     summary: dict = {}
     if report_type == "users":
-        summary["total"] = await db["users"].count_documents({})
+        users_repo = UserRepository(db)
+        summary["total"] = await users_repo.count_all()
         summary["by_role"] = {
-            r.value: await db["users"].count_documents({"role": r.value}) for r in UserRole
+            r.value: await users_repo.count_by_role(r) for r in UserRole
         }
     elif report_type == "lawyers":
-        summary["total"] = await db["lawyer_profiles"].count_documents({})
+        lawyers_repo = LawyerRepository(db)
+        summary["total"] = await lawyers_repo.count_all()
         summary["by_status"] = {
-            s.value: await db["lawyer_profiles"].count_documents({"verification_status": s.value})
-            for s in LawyerStatus
+            s.value: await lawyers_repo.count_by_status(s) for s in LawyerStatus
         }
     elif report_type == "appointments":
-        summary["total"] = await db["appointments"].count_documents({})
+        appts_repo = AppointmentRepository(db)
+        summary["total"] = await appts_repo.count_all()
         summary["by_status"] = {
-            s.value: await db["appointments"].count_documents({"status": s.value})
-            for s in AppointmentStatus
+            s.value: await appts_repo.count_by_status(s) for s in AppointmentStatus
         }
     elif report_type == "complaints":
-        summary["total"] = await db["complaints"].count_documents({})
+        complaints_repo = ComplaintRepository(db)
+        summary["total"] = await complaints_repo.count_all()
         summary["by_status"] = {
-            s.value: await db["complaints"].count_documents({"status": s.value})
-            for s in ComplaintStatus
+            s.value: await complaints_repo.count_by_status(s) for s in ComplaintStatus
         }
     elif report_type == "revenue":
-        agg = await db["payments"].aggregate(
-            [{"$match": {"status": PaymentStatus.PAID.value}}, {"$group": {"_id": None, "total": {"$sum": "$amount"}}}]
-        ).to_list(length=1)
-        summary["total_paid"] = round((agg[0]["total"] if agg else 0.0), 2)
-        summary["paid_count"] = await db["payments"].count_documents({"status": PaymentStatus.PAID.value})
+        payments_repo = PaymentRepository(db)
+        summary["total_paid"] = await payments_repo.sum_by_status(PaymentStatus.PAID)
+        summary["paid_count"] = await payments_repo.count_by_status(PaymentStatus.PAID)
     return summary
 
 
@@ -479,7 +468,7 @@ async def _build_report_summary(
 async def admin_report(
     report_type: str,
     admin: AdminDep,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     if report_type not in _REPORT_TYPES:
         raise HTTPException(status_code=404, detail="Unknown report type")
@@ -499,7 +488,7 @@ async def admin_report(
 async def admin_report_download(
     report_type: str,
     admin: AdminDep,
-    db: AsyncIOMotorDatabase = Depends(require_db),
+    db: AsyncSession = Depends(require_db),
 ):
     if report_type not in _REPORT_TYPES:
         raise HTTPException(status_code=404, detail="Unknown report type")
