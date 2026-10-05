@@ -41,11 +41,89 @@ async def test_update_own_profile(client: AsyncClient):
     resp = await client.patch(
         "/api/v1/users/me",
         headers=auth_headers(user),
-        json={"name": "Updated Name", "preferred_language": "hi"},
+        json={
+            "name": "Updated Name",
+            "phone": "+91 98765 43210",
+            "city": "Pune",
+            "address": "12 Shivaji Nagar, Pune 411005",
+            "bio": "Tenant dispute advice",
+            "preferred_language": "hi",
+        },
     )
     assert resp.status_code == 200
-    assert resp.json()["name"] == "Updated Name"
-    assert resp.json()["preferred_language"] == "hi"
+    body = resp.json()
+    assert body["name"] == "Updated Name"
+    assert body["preferred_language"] == "hi"
+    assert body["phone"] == "+91 98765 43210"
+    assert body["city"] == "Pune"
+    assert body["address"] == "12 Shivaji Nagar, Pune 411005"
+    assert body["bio"] == "Tenant dispute advice"
+
+
+async def test_profile_update_persists_across_refetch(client: AsyncClient):
+    """A save must survive a re-read, which is what the profile page relies on.
+
+    The page seeds its form from `GET /users/me` after a reload, so a value that
+    only lives in the PATCH response would look lost to the user.
+    """
+    user = await register_user(client)
+    resp = await client.patch(
+        "/api/v1/users/me",
+        headers=auth_headers(user),
+        json={"name": "Persisted Name", "address": "9 Fort Road, Mumbai 400001"},
+    )
+    assert resp.status_code == 200
+
+    refetch = await client.get("/api/v1/users/me", headers=auth_headers(user))
+    assert refetch.status_code == 200
+    assert refetch.json()["name"] == "Persisted Name"
+    assert refetch.json()["address"] == "9 Fort Road, Mumbai 400001"
+
+
+async def test_profile_update_persists_for_every_role(client: AsyncClient, db):
+    """The address lives on the shared user record, so all three roles get it."""
+    accounts = {
+        "user": await register_user(client),
+        "lawyer": await register_lawyer(client),
+        "admin": await register_admin(client),
+    }
+    for role, account in accounts.items():
+        address = f"{role} address, sector {len(role)}"
+        resp = await client.patch(
+            "/api/v1/users/me",
+            headers=auth_headers(account),
+            json={"address": address},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["address"] == address
+
+        refetch = await client.get(
+            "/api/v1/users/me", headers=auth_headers(account)
+        )
+        assert refetch.status_code == 200
+        assert refetch.json()["address"] == address
+
+
+async def test_profile_update_rejects_oversized_address(client: AsyncClient):
+    user = await register_user(client)
+    resp = await client.patch(
+        "/api/v1/users/me",
+        headers=auth_headers(user),
+        json={"address": "x" * 501},
+    )
+    assert resp.status_code == 422
+
+
+async def test_profile_update_cannot_touch_email(client: AsyncClient):
+    """Email is not in ProfileUpdate, so it stays read-only for self-service."""
+    user = await register_user(client)
+    resp = await client.patch(
+        "/api/v1/users/me",
+        headers=auth_headers(user),
+        json={"email": "hijack@example.com"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["email"] == "user@example.com"
 
 
 async def test_get_own_profile(client: AsyncClient):
@@ -53,6 +131,7 @@ async def test_get_own_profile(client: AsyncClient):
     resp = await client.get("/api/v1/users/me", headers=auth_headers(user))
     assert resp.status_code == 200
     assert resp.json()["email"] == "user@example.com"
+    assert resp.json()["address"] is None
 
 
 async def test_profile_update_requires_auth(client: AsyncClient):

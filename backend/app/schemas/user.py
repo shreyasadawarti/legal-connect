@@ -11,6 +11,7 @@ class ProfileUpdate(BaseModel):
     phone: Optional[str] = Field(default=None, max_length=20)
     preferred_language: Optional[str] = Field(default=None, max_length=20)
     city: Optional[str] = Field(default=None, max_length=120)
+    address: Optional[str] = Field(default=None, max_length=500)
     bio: Optional[str] = Field(default=None, max_length=2000)
 
 
@@ -22,6 +23,7 @@ class UserProfileResponse(BaseModel):
     role: UserRole
     preferred_language: Optional[str] = None
     city: Optional[str] = None
+    address: Optional[str] = None
     bio: Optional[str] = None
     is_email_verified: bool = False
     status: UserStatus = UserStatus.ACTIVE

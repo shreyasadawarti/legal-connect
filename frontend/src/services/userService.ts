@@ -6,6 +6,7 @@ export interface ProfileUpdatePayload {
   phone?: string
   preferred_language?: string
   city?: string
+  address?: string
   bio?: string
 }
 

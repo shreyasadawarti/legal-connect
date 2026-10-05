@@ -2,21 +2,20 @@ export type UserRole = 'user' | 'lawyer' | 'admin'
 
 export type UserStatus = 'ACTIVE' | 'SUSPENDED' | 'DEACTIVATED'
 
-export interface UserProfile {
-  bio?: string
-  city?: string
-  address?: string
-  avatar_url?: string
-  date_of_birth?: string
-}
-
+/**
+ * Mirrors the API's user document exactly: personal fields are flat, matching
+ * `UserProfileResponse` on the backend. The lawyer-only professional fields
+ * (categories, rate, verification) live in `LawyerProfile`, not here.
+ */
 export interface User {
   id: string
   name: string
   email: string
   phone?: string
   role: UserRole
-  profile?: UserProfile
+  city?: string
+  address?: string
+  bio?: string
   preferred_language?: string
   is_email_verified: boolean
   status: UserStatus

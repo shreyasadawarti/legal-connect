@@ -1,41 +1,83 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2, UserRound } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { useAuthStore } from '@/stores/authStore'
 import { getMyProfile, updateMyProfile, type ProfileUpdatePayload } from '@/services/userService'
+
+function errorMessage(err: unknown): string {
+  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail
+      .map((d) => (d as { msg?: string }).msg)
+      .filter(Boolean)
+      .join(', ') || 'Some fields were rejected.'
+  }
+  return 'Could not save your profile. Please try again.'
+}
 
 export default function ProfilePage() {
   const queryClient = useQueryClient()
   const user = useAuthStore((s) => s.user)
   const setUser = useAuthStore((s) => s.setUser)
 
-  const { isLoading, isError } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['profile'],
     queryFn: getMyProfile,
   })
 
-  const [name, setName] = useState(typeof user?.name === 'string' ? user.name : '')
-  const [phone, setPhone] = useState(user?.phone ?? '')
-  const [city, setCity] = useState(user?.profile?.city ?? '')
-  const [bio, setBio] = useState(user?.profile?.bio ?? '')
-  const [language, setLanguage] = useState(user?.preferred_language ?? '')
+  const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [city, setCity] = useState('')
+  const [address, setAddress] = useState('')
+  const [bio, setBio] = useState('')
+  const [language, setLanguage] = useState('')
   const [success, setSuccess] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // The form is seeded from the server response rather than the auth store.
+  // The store copy is only refreshed on login and after a save, so it can be
+  // stale or missing fields that the profile endpoint returns authoritatively.
+  useEffect(() => {
+    if (!data) return
+    setName(data.name ?? '')
+    setPhone(data.phone ?? '')
+    setCity(data.city ?? '')
+    setAddress(data.address ?? '')
+    setBio(data.bio ?? '')
+    setLanguage(data.preferred_language ?? '')
+  }, [data])
 
   const mutation = useMutation({
     mutationFn: (payload: ProfileUpdatePayload) => updateMyProfile(payload),
-    onSuccess: (data) => {
+    onSuccess: (updated) => {
+      setError(null)
       setSuccess(true)
+      setUser(updated)
       queryClient.invalidateQueries({ queryKey: ['profile'] })
-      setUser(data)
+    },
+    onError: (err) => {
+      setSuccess(false)
+      setError(errorMessage(err))
     },
   })
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setSuccess(false)
-    mutation.mutate({ name, phone: phone || undefined, city: city || undefined, bio: bio || undefined, preferred_language: language || undefined })
+    setError(null)
+    // Empty strings are sent deliberately: the backend ignores `None` but stores
+    // `''`, which is what lets a user clear a field they previously filled in.
+    mutation.mutate({
+      name: name.trim(),
+      phone: phone.trim(),
+      city: city.trim(),
+      address: address.trim(),
+      bio: bio.trim(),
+      preferred_language: language.trim(),
+    })
   }
 
   if (isLoading) {
@@ -45,6 +87,8 @@ export default function ProfilePage() {
       </div>
     )
   }
+
+  const email = data?.email ?? user?.email ?? ''
 
   return (
     <div className="max-w-2xl">
@@ -65,42 +109,90 @@ export default function ProfilePage() {
             Profile updated successfully.
           </p>
         )}
+        {error && (
+          <p className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
+            {error}
+          </p>
+        )}
         <form noValidate onSubmit={onSubmit} className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-medium">Full name</label>
+            <label htmlFor="profile-email" className="mb-1 block text-sm font-medium">
+              Email
+            </label>
             <input
+              id="profile-email"
+              value={email}
+              readOnly
+              disabled
+              className="w-full cursor-not-allowed rounded-lg border border-surface-300 bg-surface-100 px-3 py-2 text-sm text-surface-500 outline-none dark:border-surface-700 dark:bg-surface-900 dark:text-surface-400"
+            />
+            <p className="mt-1 text-xs text-surface-500 dark:text-surface-400">
+              Your sign-in address cannot be changed here.
+            </p>
+          </div>
+          <div>
+            <label htmlFor="profile-name" className="mb-1 block text-sm font-medium">
+              Full name
+            </label>
+            <input
+              id="profile-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full rounded-lg border border-surface-300 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-brand-500 dark:border-surface-700 dark:bg-surface-900"
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Phone</label>
+            <label htmlFor="profile-phone" className="mb-1 block text-sm font-medium">
+              Phone
+            </label>
             <input
+              id="profile-phone"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               className="w-full rounded-lg border border-surface-300 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-brand-500 dark:border-surface-700 dark:bg-surface-900"
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">City</label>
+            <label htmlFor="profile-city" className="mb-1 block text-sm font-medium">
+              City
+            </label>
             <input
+              id="profile-city"
               value={city}
               onChange={(e) => setCity(e.target.value)}
               className="w-full rounded-lg border border-surface-300 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-brand-500 dark:border-surface-700 dark:bg-surface-900"
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Preferred language</label>
+            <label htmlFor="profile-address" className="mb-1 block text-sm font-medium">
+              Residential address
+            </label>
+            <textarea
+              id="profile-address"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              rows={2}
+              placeholder="Street, area, city, postal code"
+              className="w-full rounded-lg border border-surface-300 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-brand-500 dark:border-surface-700 dark:bg-surface-900"
+            />
+          </div>
+          <div>
+            <label htmlFor="profile-language" className="mb-1 block text-sm font-medium">
+              Preferred language
+            </label>
             <input
+              id="profile-language"
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
               className="w-full rounded-lg border border-surface-300 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-brand-500 dark:border-surface-700 dark:bg-surface-900"
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Bio</label>
+            <label htmlFor="profile-bio" className="mb-1 block text-sm font-medium">
+              Bio
+            </label>
             <textarea
+              id="profile-bio"
               value={bio}
               onChange={(e) => setBio(e.target.value)}
               rows={3}
@@ -109,7 +201,7 @@ export default function ProfilePage() {
           </div>
           <button
             type="submit"
-            disabled={mutation.isPending}
+            disabled={mutation.isPending || name.trim().length === 0}
             className="rounded-lg bg-brand-600 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
           >
             {mutation.isPending ? 'Saving…' : 'Save changes'}

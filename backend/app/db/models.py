@@ -82,6 +82,7 @@ class User(Base):
     )
     preferred_language: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     city: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     bio: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     status: Mapped[UserStatus] = mapped_column(
