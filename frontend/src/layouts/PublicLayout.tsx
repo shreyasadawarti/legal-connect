@@ -53,7 +53,27 @@ export default function PublicLayout() {
       </main>
       <footer className="border-t border-surface-200 bg-surface-100 py-8 dark:border-surface-800 dark:bg-surface-900">
         <div className="mx-auto max-w-7xl px-4 text-center text-sm text-surface-600 dark:text-surface-400 sm:px-6">
-          <p>© {new Date().getFullYear()} Legal Connect. All rights reserved.</p>
+          <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+            <Link to="/how-it-works" className="hover:text-brand-600 dark:hover:text-brand-400">
+              How It Works
+            </Link>
+            <Link to="/about" className="hover:text-brand-600 dark:hover:text-brand-400">
+              About
+            </Link>
+            <Link to="/faq" className="hover:text-brand-600 dark:hover:text-brand-400">
+              FAQ
+            </Link>
+            <Link to="/contact" className="hover:text-brand-600 dark:hover:text-brand-400">
+              Contact
+            </Link>
+            <Link to="/privacy" className="hover:text-brand-600 dark:hover:text-brand-400">
+              Privacy
+            </Link>
+            <Link to="/terms" className="hover:text-brand-600 dark:hover:text-brand-400">
+              Terms
+            </Link>
+          </nav>
+          <p className="mt-4">© {new Date().getFullYear()} Legal Connect. All rights reserved.</p>
           <p className="mt-1 text-xs">
             Legal Connect provides general legal information, not legal advice.
           </p>

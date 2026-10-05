@@ -37,8 +37,14 @@ import NotificationsPage from '@/features/notifications/NotificationsPage'
 import ProfilePage from '@/features/profile/ProfilePage'
 import DashboardLayout from '@/layouts/DashboardLayout'
 import PublicLayout from '@/layouts/PublicLayout'
+import AboutPage from '@/pages/AboutPage'
+import ContactPage from '@/pages/ContactPage'
+import FaqPage from '@/pages/FaqPage'
+import HowItWorksPage from '@/pages/HowItWorksPage'
 import LandingPage from '@/pages/LandingPage'
 import NotFoundPage from '@/pages/NotFoundPage'
+import PrivacyPage from '@/pages/PrivacyPage'
+import TermsPage from '@/pages/TermsPage'
 import { useAuthStore } from '@/stores/authStore'
 import { useThemeStore } from '@/stores/themeStore'
 
@@ -66,12 +72,12 @@ export default function App() {
       {/* Public */}
       <Route element={<PublicLayout />}>
         <Route path="/" element={<LandingPage />} />
-        <Route path="/how-it-works" element={<Placeholder title="How It Works" />} />
-        <Route path="/about" element={<Placeholder title="About" />} />
-        <Route path="/faq" element={<Placeholder title="FAQ" />} />
-        <Route path="/contact" element={<Placeholder title="Contact" />} />
-        <Route path="/privacy" element={<Placeholder title="Privacy Policy" />} />
-        <Route path="/terms" element={<Placeholder title="Terms of Service" />} />
+        <Route path="/how-it-works" element={<HowItWorksPage />} />
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/faq" element={<FaqPage />} />
+        <Route path="/contact" element={<ContactPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/terms" element={<TermsPage />} />
       </Route>
 
       {/* Auth */}

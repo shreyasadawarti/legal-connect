@@ -11,7 +11,7 @@ email-validator==2.2.0
 
 # Database
 SQLAlchemy==2.0.54
-asyncmy==0.2.10
+asyncmy==0.2.15
 alembic==1.20.0
 
 # MongoDB -- only used by the optional one-shot data importer

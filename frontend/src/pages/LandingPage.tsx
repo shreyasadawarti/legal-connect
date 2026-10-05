@@ -47,17 +47,18 @@ export default function LandingPage() {
         </div>
         <div className="rounded-2xl border border-surface-200 bg-white p-6 dark:border-surface-800 dark:bg-surface-800">
           <FileText className="h-8 w-8 text-brand-600" />
-          <h3 className="mt-4 text-lg font-semibold">Secure Documents</h3>
+          <h3 className="mt-4 text-lg font-semibold">Private Documents</h3>
           <p className="mt-2 text-sm text-surface-600 dark:text-surface-300">
-            Upload and share legal documents privately with advanced security.
+            Upload and share legal documents privately, through short-lived links you control.
           </p>
         </div>
       </div>
 
       <div className="mt-16 rounded-2xl bg-brand-700 p-8 text-center text-white">
-        <h2 className="text-2xl font-bold">Need legal help now?</h2>
+        <h2 className="text-2xl font-bold">Not sure where to start?</h2>
         <p className="mt-2 text-brand-100">
-          Our AI assistant can help you understand your legal situation around the clock.
+          Our AI assistant can help you understand your legal situation and point you in the right
+          direction.
         </p>
         <Link
           to="/login"

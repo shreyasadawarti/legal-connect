@@ -18,8 +18,8 @@ secure document sharing, and admin management.
 | Layer | Technology |
 |-------|------------|
 | Frontend | React.js, Vite, TypeScript, Tailwind CSS, React Router, TanStack Query, Zustand, Axios, React Hook Form, Zod, Recharts, Lucide React, Framer Motion, Vitest, React Testing Library |
-| Backend | Python 3.12+, FastAPI, Pydantic, PyMongo/Motor, JWT, bcrypt, FastAPI WebSockets, ReportLab, Pytest, HTTPX |
-| Database | MongoDB Atlas (cloud only) |
+| Backend | Python 3.12+, FastAPI, Pydantic, SQLAlchemy 2.0 (async), asyncmy, Alembic, JWT, bcrypt, FastAPI WebSockets, ReportLab, Pytest, HTTPX |
+| Database | MySQL 8 (async SQLAlchemy + Alembic migrations) |
 | Storage | Cloudinary (cloud only) |
 | Real-time | FastAPI WebSockets (chat + notifications + WebRTC signaling) |
 | Video | WebRTC + STUN/TURN |
@@ -31,8 +31,9 @@ secure document sharing, and admin management.
 ### Hard Restrictions
 - ❌ NO Firebase anywhere
 - ❌ NO Docker
-- ❌ NO local MongoDB / Redis / MinIO / etc.
-- ✅ All cloud services (MongoDB Atlas, Cloudinary, Vercel, Render/Railway, Resend/SMTP, OpenAI)
+- ❌ NO local MySQL / Redis / MinIO / etc. beyond a local development server
+- ❌ NO MongoDB — migrated to MySQL; see revision `d4bf9214682c`
+- ✅ Cloud services (managed MySQL, Cloudinary, Vercel, Render/Railway, Resend/SMTP, OpenAI)
 - ✅ No hardcoded secrets — all via environment variables
 - ✅ Optional services degrade gracefully when unconfigured (never crash)
 
@@ -238,13 +239,15 @@ legal-connect/
 > EmergencyHelpPage at `/emergency` (national helplines + nearby-lawyers link),
 > replaces the earlier redirect.
 
-> **Phase 7 LIVE verification (admin connectivity).** Admin, dashboards, and APIs are connected to the real
+> **Phase 7 LIVE verification (admin connectivity).** *Historical — performed against MongoDB Atlas
+> before the MySQL migration.* Admin, dashboards, and APIs are connected to the real
 > running site + MongoDB Atlas and verified end-to-end:
-> - Single admin account: `admin@gmail.com` (email + password set via the secure mechanism, one admin only).
+> - Single admin account: `admin@gmail.com` — **superseded**. That account was renamed during the
+>   MySQL migration to `admin@legalconnect.com`; `admin@gmail.com` no longer authenticates.
 > - Separate `/admin/login` page/route; public registration rejects `role:"admin"` (HTTP 400).
 > - Backend enforces admin authz: citizen & lawyer tokens → 403 on all `/api/v1/admin/*`.
 > - Lawyer verification live: Pankaj Tripathi (ACTIVE), Flow Lawyer (ACTIVE), Smoke Lawyer (REJECTED,
->   reason recorded); rejected lawyer not listed in public search. State persists in Atlas.
+>   reason recorded); rejected lawyer not listed in public search. State persisted in Atlas at the time.
 > - 2 complaints responded (RESOLVED + admin notes); users/lawyers reviewed (report-only).
 > - 5 reports generated (users, lawyers, appointments, complaints, revenue) with PDF downloads.
 > - Audit trail + user notifications confirmed in Atlas; session smoke accounts cleaned up.
@@ -268,7 +271,8 @@ The project is complete only when ALL of these pass:
 
 - [x] Frontend starts successfully
 - [x] Backend starts successfully
-- [x] MongoDB Atlas connection works
+- [x] MySQL connection works (replaces the former MongoDB Atlas criterion)
+- [x] Alembic migrations apply cleanly (`upgrade` → `downgrade` → `upgrade`)
 - [x] Cloudinary upload + secure download work
 - [x] Registration and login work
 - [x] Role-based dashboards work
@@ -304,7 +308,7 @@ The project is complete only when ALL of these pass:
 ### Cloud Accounts (user confirmed created)
 | Service | Purpose | Config status |
 |---------|---------|---------------|
-| MongoDB Atlas | Database | ⬜ Add MONGODB_URI to .env (Phase 3/4) |
+| MySQL 8 (managed) | Database | ⬜ Set MYSQL_* in the host .env (deployment) |
 | Cloudinary | File storage | ⬜ Add credentials to .env (Phase 3/4) |
 | Resend/SMTP | Email | ⬜ Optional (Phase 2) |
 | OpenAI | AI | ⬜ Optional (Phase 6) |
@@ -313,4 +317,20 @@ The project is complete only when ALL of these pass:
 
 ---
 
-*Last updated: Phases 1–8 verified. Admin fully connected to the live site (single admin `admin@gmail.com`, `/admin/login`, backend-enforced authz, live lawyer verification + complaints + reports persisted in Atlas). Backend pytest 95 ✔ · frontend vitest 16 ✔ · build ✔.*
+## 9. Profile Address Field
+
+`users.address` (nullable `TEXT`, revision `fef6641d722c`) stores a residential address on the
+shared user record, so Citizen, Lawyer, and Admin all get it from the same profile form. It is
+writable through `PATCH /api/v1/users/me`; `email` remains read-only there by design.
+
+The profile page previously read `user.profile.city` / `user.profile.bio`, a nested shape the API
+never returned, so saved values re-rendered blank on every reload. The frontend `User` type now
+matches the flat API response and the form seeds from `GET /users/me`.
+
+---
+
+*Last updated: MongoDB → MySQL migration complete (17 tables, revision `d4bf9214682c`, legacy
+ObjectId-compatible `CHAR(24)` IDs preserved) plus the profile address field (`fef6641d722c`).
+Single admin `admin@legalconnect.com` via `/admin/login`. Six public pages (How It Works, About,
+FAQ, Contact, Privacy, Terms) replaced the Under Construction placeholders. Backend pytest 122 ✔ ·
+frontend vitest 22 ✔ · build ✔ · lint ✔.*
