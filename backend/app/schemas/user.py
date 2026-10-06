@@ -24,6 +24,7 @@ class UserProfileResponse(BaseModel):
     preferred_language: Optional[str] = None
     city: Optional[str] = None
     address: Optional[str] = None
+    profile_picture_url: Optional[str] = None
     bio: Optional[str] = None
     is_email_verified: bool = False
     status: UserStatus = UserStatus.ACTIVE

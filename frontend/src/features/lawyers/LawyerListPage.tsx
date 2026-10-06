@@ -3,6 +3,7 @@ import { Loader2, MapPin, Search, Star } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
+import UserAvatar from '@/components/UserAvatar'
 import { searchLawyers } from '@/services/lawyerService'
 import type { LawyerProfile, LegalCategory } from '@/types/platform'
 
@@ -128,21 +129,26 @@ export default function LawyerListPage() {
               to={`/lawyers/${lawyer.user_id}`}
               className="rounded-2xl border border-surface-200 bg-white p-5 transition hover:shadow-md dark:border-surface-800 dark:bg-surface-800"
             >
-              <div className="flex items-start justify-between">
-                <h3 className="font-semibold">{lawyer.name}</h3>
-                {lawyer.is_verified && (
-                  <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/40 dark:text-green-400">
-                    Verified
-                  </span>
-                )}
-              </div>
-              <div className="mt-2 flex items-center gap-2 text-sm text-surface-500 dark:text-surface-400">
-                <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
-                <span>{lawyer.avg_rating.toFixed(1)}</span>
-                <span>({lawyer.rating_count})</span>
+              <div className="flex items-start gap-3">
+                <UserAvatar src={lawyer.profile_picture_url} name={lawyer.name} size="lg" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="font-semibold">{lawyer.name}</h3>
+                    {lawyer.is_verified && (
+                      <span className="shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/40 dark:text-green-400">
+                        Verified
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 text-sm text-surface-500 dark:text-surface-400">
+                    <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+                    <span>{lawyer.avg_rating.toFixed(1)}</span>
+                    <span>({lawyer.rating_count})</span>
+                  </div>
+                </div>
               </div>
               {lawyer.city && (
-                <div className="mt-1 flex items-center gap-1 text-sm text-surface-500 dark:text-surface-400">
+                <div className="mt-2 flex items-center gap-1 text-sm text-surface-500 dark:text-surface-400">
                   <MapPin className="h-4 w-4" />
                   {lawyer.city}
                 </div>

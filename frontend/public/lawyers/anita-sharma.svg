@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Illustrated fictional portrait of a lawyer">
+  <defs>
+    <clipPath id="a"><circle cx="128" cy="128" r="128"/></clipPath>
+  </defs>
+  <g clip-path="url(#a)">
+    <rect width="256" height="256" fill="#EEF2FF"/>
+    <circle cx="128" cy="150" r="96" fill="#E0E7FF"/>
+    <path d="M34 256 L34 232 C34 196 76 174 128 174 C180 174 222 196 222 232 L222 256 Z" fill="#1F2A44"/>
+    <path d="M96 175 L128 252 L110 256 L78 191 Z" fill="#2A3A5E"/>
+    <path d="M160 175 L128 252 L146 256 L178 191 Z" fill="#2A3A5E"/>
+    <path d="M104 176 L128 192 L152 176 L146 173 L128 185 L110 173 Z" fill="#0F7C7C"/>
+    <path d="M112 138 L144 138 L144 176 L128 190 L112 176 Z" fill="#C68642"/>
+    <ellipse cx="86" cy="112" rx="7" ry="11" fill="#D89A55"/>
+    <ellipse cx="170" cy="112" rx="7" ry="11" fill="#D89A55"/>
+    <ellipse cx="128" cy="104" rx="43" ry="50" fill="#D89A55"/>
+    <circle cx="128" cy="36" r="21" fill="#1C1410"/>
+    <path d="M85 100 C85 54 105 40 128 40 C154 40 174 58 171 102 C165 78 152 66 128 66 C106 66 92 80 85 100 Z" fill="#1C1410"/>
+    <path d="M102 92 Q112 86 122 90" stroke="#241811" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+    <path d="M134 90 Q144 86 154 92" stroke="#241811" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+    <ellipse cx="112" cy="105" rx="4.6" ry="5.6" fill="#2A2118"/>
+    <ellipse cx="144" cy="105" rx="4.6" ry="5.6" fill="#2A2118"/>
+    <path d="M128 110 L125.5 122 Q128 125 131.5 122" stroke="#B0762F" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M116 133 Q128 141 140 133" stroke="#8E3B3B" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <circle cx="86" cy="120" r="4.5" fill="#E9B84C"/>
+    <circle cx="170" cy="120" r="4.5" fill="#E9B84C"/>
+  </g>
+</svg>

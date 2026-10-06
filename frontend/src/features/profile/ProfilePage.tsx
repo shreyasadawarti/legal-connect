@@ -1,10 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, UserRound } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Loader2, Trash2, Upload, UserRound } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import UserAvatar from '@/components/UserAvatar'
 import { useAuthStore } from '@/stores/authStore'
-import { getMyProfile, updateMyProfile, type ProfileUpdatePayload } from '@/services/userService'
+import {
+  getMyProfile,
+  removeProfilePicture,
+  updateMyProfile,
+  uploadProfilePicture,
+  type ProfileUpdatePayload,
+} from '@/services/userService'
+
+const MAX_PICTURE_BYTES = 5 * 1024 * 1024
+const ACCEPTED_PICTURE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 
 function errorMessage(err: unknown): string {
   const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
@@ -36,6 +46,76 @@ export default function ProfilePage() {
   const [language, setLanguage] = useState('')
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const [picture, setPicture] = useState<File | null>(null)
+  const [preview, setPreview] = useState<string | null>(null)
+  const [pictureError, setPictureError] = useState<string | null>(null)
+  const [pictureSaved, setPictureSaved] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  const savedPictureUrl = data?.profile_picture_url ?? null
+
+  // Object URLs are revoked when the selection changes or the page unmounts, so
+  // repeated previews do not leak blobs for the life of the session.
+  useEffect(() => {
+    if (!picture) {
+      setPreview(null)
+      return
+    }
+    const url = URL.createObjectURL(picture)
+    setPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [picture])
+
+  const applyPictureUpdate = (updated: Awaited<ReturnType<typeof getMyProfile>>) => {
+    setPicture(null)
+    setPictureSaved(true)
+    setPictureError(null)
+    setUser(updated)
+    queryClient.invalidateQueries({ queryKey: ['profile'] })
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) => uploadProfilePicture(file),
+    onSuccess: applyPictureUpdate,
+    onError: (err) => {
+      setPictureSaved(false)
+      setPictureError(errorMessage(err))
+    },
+  })
+
+  const removeMutation = useMutation({
+    mutationFn: () => removeProfilePicture(),
+    onSuccess: applyPictureUpdate,
+    onError: (err) => {
+      setPictureSaved(false)
+      setPictureError(errorMessage(err))
+    },
+  })
+
+  const onPickPicture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null
+    setPictureSaved(false)
+    setPictureError(null)
+    if (!file) {
+      setPicture(null)
+      return
+    }
+    // Mirrors the backend limits so an oversized or unsupported file is rejected
+    // before an upload round trip.
+    if (!ACCEPTED_PICTURE_TYPES.includes(file.type)) {
+      setPicture(null)
+      setPictureError('Choose a PNG, JPG, or WebP image.')
+      return
+    }
+    if (file.size > MAX_PICTURE_BYTES) {
+      setPicture(null)
+      setPictureError('That image is too large. The maximum is 5 MB.')
+      return
+    }
+    setPicture(file)
+  }
 
   // The form is seeded from the server response rather than the auth store.
   // The store copy is only refreshed on login and after a save, so it can be
@@ -102,6 +182,69 @@ export default function ProfilePage() {
           Could not load your profile.
         </p>
       )}
+
+      <div className="mt-6 rounded-2xl border border-surface-200 bg-white p-6 dark:border-surface-800 dark:bg-surface-800">
+        <h2 className="text-base font-semibold">Profile picture</h2>
+        <div className="mt-4 flex items-center gap-4">
+          <UserAvatar src={preview ?? savedPictureUrl} name={data?.name} size="xl" />
+          <div className="min-w-0 flex-1">
+            <input
+              ref={fileInputRef}
+              id="profile-picture"
+              type="file"
+              accept={ACCEPTED_PICTURE_TYPES.join(',')}
+              onChange={onPickPicture}
+              className="sr-only"
+            />
+            <label
+              htmlFor="profile-picture"
+              className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-surface-300 bg-white px-3 py-2 text-sm font-medium text-surface-700 hover:bg-surface-50 dark:border-surface-700 dark:bg-surface-900 dark:text-surface-200"
+            >
+              <Upload className="h-4 w-4" />
+              {picture ? 'Change image' : 'Choose image'}
+            </label>
+            <p className="mt-2 text-xs text-surface-500 dark:text-surface-400">
+              PNG, JPG, or WebP up to 5 MB.
+            </p>
+          </div>
+        </div>
+
+        {pictureError && (
+          <p className="mt-3 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
+            {pictureError}
+          </p>
+        )}
+        {pictureSaved && (
+          <p className="mt-3 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700 dark:bg-green-900/30 dark:text-green-300">
+            Profile picture updated.
+          </p>
+        )}
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => picture && uploadMutation.mutate(picture)}
+            disabled={!picture || uploadMutation.isPending}
+            className="inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {uploadMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4" />
+            )}
+            Save picture
+          </button>
+          <button
+            type="button"
+            onClick={() => removeMutation.mutate()}
+            disabled={!savedPictureUrl || removeMutation.isPending}
+            className="inline-flex items-center gap-2 rounded-lg border border-surface-300 bg-white px-4 py-2 text-sm font-medium text-surface-700 hover:bg-surface-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-surface-700 dark:bg-surface-900 dark:text-surface-200"
+          >
+            <Trash2 className="h-4 w-4" />
+            Remove
+          </button>
+        </div>
+      </div>
 
       <div className="mt-6 rounded-2xl border border-surface-200 bg-white p-6 dark:border-surface-800 dark:bg-surface-800">
         {success && (

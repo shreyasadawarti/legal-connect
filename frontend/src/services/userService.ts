@@ -26,3 +26,15 @@ export async function lookupUserByEmail(email: string): Promise<{ id: string; na
   })
   return data
 }
+
+export async function uploadProfilePicture(file: File): Promise<User> {
+  const body = new FormData()
+  body.append('file', file)
+  const { data } = await api.post<User>('/users/me/profile-picture', body)
+  return data
+}
+
+export async function removeProfilePicture(): Promise<User> {
+  const { data } = await api.delete<User>('/users/me/profile-picture')
+  return data
+}

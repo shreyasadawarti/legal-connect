@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Illustrated fictional portrait of a lawyer">
+  <defs>
+    <clipPath id="a"><circle cx="128" cy="128" r="128"/></clipPath>
+  </defs>
+  <g clip-path="url(#a)">
+    <rect width="256" height="256" fill="#F0FDFA"/>
+    <circle cx="128" cy="150" r="96" fill="#CCFBF1"/>
+    <path d="M34 256 L34 232 C34 196 76 174 128 174 C180 174 222 196 222 232 L222 256 Z" fill="#134E4A"/>
+    <path d="M96 175 L128 252 L110 256 L78 191 Z" fill="#1D6A64"/>
+    <path d="M160 175 L128 252 L146 256 L178 191 Z" fill="#1D6A64"/>
+    <path d="M108 177 L128 194 L148 177 L142 173 L128 186 L114 173 Z" fill="#FFFFFF"/>
+    <path d="M112 138 L144 138 L144 176 L128 190 L112 176 Z" fill="#9A6435"/>
+    <ellipse cx="86" cy="112" rx="7" ry="11" fill="#AE7442"/>
+    <ellipse cx="170" cy="112" rx="7" ry="11" fill="#AE7442"/>
+    <ellipse cx="128" cy="104" rx="43" ry="50" fill="#AE7442"/>
+    <circle cx="128" cy="34" r="19" fill="#0E0A08"/>
+    <path d="M85 100 C85 54 106 40 128 40 C154 40 174 58 171 102 C165 78 152 66 128 66 C106 66 92 80 85 100 Z" fill="#0E0A08"/>
+    <path d="M85 104 C82 128 84 150 90 166 L102 166 C96 148 94 126 96 104 Z" fill="#0E0A08"/>
+    <path d="M171 104 C174 128 172 150 166 166 L154 166 C160 148 162 126 160 104 Z" fill="#0E0A08"/>
+    <path d="M102 92 Q112 86 122 90" stroke="#1A1210" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+    <path d="M134 90 Q144 86 154 92" stroke="#1A1210" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+    <ellipse cx="112" cy="106" rx="4.8" ry="5.8" fill="#1A1009"/>
+    <ellipse cx="144" cy="106" rx="4.8" ry="5.8" fill="#1A1009"/>
+    <circle cx="110" cy="103" r="1.6" fill="#FFFFFF"/>
+    <circle cx="142" cy="103" r="1.6" fill="#FFFFFF"/>
+    <path d="M128 112 L125.5 123 Q128 126 131.5 123" stroke="#855426" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M117 134 Q128 142 139 134" stroke="#7B3B3B" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <circle cx="86" cy="122" r="4.5" fill="#E9B84C"/>
+    <circle cx="170" cy="122" r="4.5" fill="#E9B84C"/>
+  </g>
+</svg>

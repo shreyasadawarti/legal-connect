@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Illustrated fictional portrait of a lawyer">
+  <defs>
+    <clipPath id="a"><circle cx="128" cy="128" r="128"/></clipPath>
+  </defs>
+  <g clip-path="url(#a)">
+    <rect width="256" height="256" fill="#EFF6FF"/>
+    <circle cx="128" cy="150" r="96" fill="#DBEAFE"/>
+    <path d="M34 256 L34 232 C34 196 76 174 128 174 C180 174 222 196 222 232 L222 256 Z" fill="#5B4636"/>
+    <path d="M96 175 L128 252 L110 256 L78 191 Z" fill="#6B5442"/>
+    <path d="M160 175 L128 252 L146 256 L178 191 Z" fill="#6B5442"/>
+    <path d="M108 177 L128 194 L148 177 L142 173 L128 186 L114 173 Z" fill="#DBEAFE"/>
+    <path d="M124 192 L132 192 L135 236 L128 246 L121 236 Z" fill="#1D4ED8"/>
+    <path d="M112 138 L144 138 L144 176 L128 190 L112 176 Z" fill="#D2A177"/>
+    <ellipse cx="86" cy="112" rx="7" ry="11" fill="#E0B189"/>
+    <ellipse cx="170" cy="112" rx="7" ry="11" fill="#E0B189"/>
+    <ellipse cx="128" cy="104" rx="43" ry="50" fill="#E0B189"/>
+    <path d="M86 108 C84 92 86 66 96 56 C108 44 148 44 160 56 C170 66 172 92 170 108 C168 88 160 74 148 70 L108 70 C96 74 88 88 86 108 Z" fill="#3A3230"/>
+    <path d="M86 108 C83 122 85 136 90 144 L99 141 C95 130 94 118 95 108 Z" fill="#3A3230"/>
+    <path d="M170 108 C173 122 171 136 166 144 L157 141 C161 130 162 118 161 108 Z" fill="#3A3230"/>
+    <path d="M102 90 Q112 84 122 88" stroke="#4A423F" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+    <path d="M134 88 Q144 84 154 90" stroke="#4A423F" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+    <ellipse cx="112" cy="106" rx="4.6" ry="5.6" fill="#2C211A"/>
+    <ellipse cx="144" cy="106" rx="4.6" ry="5.6" fill="#2C211A"/>
+    <path d="M128 112 L125.5 123 Q128 126 131.5 123" stroke="#B57E4E" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M114 126 Q128 131 142 126 Q138 142 128 142 Q118 142 114 126 Z" fill="#4A3B36"/>
+    <path d="M116 134 Q128 140 140 134" stroke="#8A5A54" stroke-width="3" fill="none" stroke-linecap="round"/>
+  </g>
+</svg>

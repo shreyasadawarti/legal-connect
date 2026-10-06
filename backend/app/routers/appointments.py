@@ -20,20 +20,39 @@ from app.schemas.appointment import (
 router = APIRouter(prefix="/appointments", tags=["appointments"])
 
 
-async def _name_map(db: AsyncSession, ids: list[str]) -> dict[str, str]:
+async def _participant_map(db: AsyncSession, ids: list[str]) -> dict[str, dict]:
+    """Name, picture, phone and city for the given user ids."""
     if not ids:
         return {}
     users = await UserRepository(db).find_by_ids(list(set(ids)))
-    return {str(u["_id"]): u.get("name", "") for u in users}
+    return {
+        str(u["_id"]): {
+            "name": u.get("name", ""),
+            "profile_picture_url": u.get("profile_picture_url"),
+            "phone": u.get("phone"),
+            "city": u.get("city"),
+        }
+        for u in users
+    }
 
 
 async def _to_response(
-    db: AsyncSession, doc: dict
+    db: AsyncSession, doc: dict, viewer_id: str
 ) -> dict:
-    names = await _name_map(db, [doc["lawyer_id"], doc["client_id"]])
+    info = await _participant_map(db, [doc["lawyer_id"], doc["client_id"]])
+    lawyer = info.get(doc["lawyer_id"], {})
+    client = info.get(doc["client_id"], {})
     result = serialize_appointment(doc)
-    result["lawyer_name"] = names.get(doc["lawyer_id"], "")
-    result["client_name"] = names.get(doc["client_id"], "")
+    result["lawyer_name"] = lawyer.get("name", "")
+    result["client_name"] = client.get("name", "")
+    # Citizen contact details exist for the assigned lawyer only. A citizen
+    # reading their own appointment already has this data on their profile, so
+    # withholding it here keeps the rule simple: it never travels to anyone who
+    # is not the lawyer handling the request.
+    if viewer_id == doc["lawyer_id"]:
+        result["client_profile_picture_url"] = client.get("profile_picture_url")
+        result["client_phone"] = client.get("phone")
+        result["client_city"] = client.get("city")
     return result
 
 
@@ -122,7 +141,7 @@ async def book_appointment(
         f"{user['name']} requested an appointment.",
         {"appointment_id": str(appointment["_id"])},
     )
-    return await _to_response(db, appointment)
+    return await _to_response(db, appointment, user["id"])
 
 
 @router.get("")
@@ -145,17 +164,23 @@ async def list_appointments(
             ) from exc
     as_lawyer = user["role"] == UserRole.LAWYER.value
     result = await appointments.list_for_user(
-        user["id"], as_lawyer=as_lawyer, status=appt_status, page=page, page_size=page_size
+user["id"], as_lawyer=as_lawyer, status=appt_status, page=page, page_size=page_size
     )
     ids = []
     for doc in result["items"]:
         ids.extend([doc["lawyer_id"], doc["client_id"]])
-    names = await _name_map(db, ids)
+    participants = await _participant_map(db, ids)
     items = []
     for doc in result["items"]:
+        lawyer = participants.get(doc["lawyer_id"], {})
+        client = participants.get(doc["client_id"], {})
         r = serialize_appointment(doc)
-        r["lawyer_name"] = names.get(doc["lawyer_id"], "")
-        r["client_name"] = names.get(doc["client_id"], "")
+        r["lawyer_name"] = lawyer.get("name", "")
+        r["client_name"] = client.get("name", "")
+        if as_lawyer:
+            r["client_profile_picture_url"] = client.get("profile_picture_url")
+            r["client_phone"] = client.get("phone")
+            r["client_city"] = client.get("city")
         items.append(r)
     return {"items": items, "total": result["total"], "page": result["page"], "page_size": result["page_size"]}
 
@@ -167,7 +192,7 @@ async def get_appointment(
     db: AsyncSession = Depends(require_db),
 ):
     appointment = await _get_participant_appointment(db, appointment_id, user["id"])
-    return await _to_response(db, appointment)
+    return await _to_response(db, appointment, user["id"])
 
 
 @router.patch("/{appointment_id}/cancel", response_model=AppointmentResponse)
@@ -193,7 +218,7 @@ async def cancel_appointment(
         f"An appointment was cancelled by {user['name']}.",
         {"appointment_id": appointment_id},
     )
-    return await _to_response(db, updated)
+    return await _to_response(db, updated, user["id"])
 
 
 @router.patch("/{appointment_id}/reschedule", response_model=AppointmentResponse)
@@ -225,7 +250,7 @@ async def reschedule_appointment(
         f"An appointment was rescheduled by {user['name']}.",
         {"appointment_id": appointment_id},
     )
-    return await _to_response(db, updated)
+    return await _to_response(db, updated, user["id"])
 
 
 async def _require_lawyer(
@@ -253,7 +278,7 @@ async def confirm_appointment(
         "Your appointment has been confirmed.",
         {"appointment_id": appointment_id},
     )
-    return await _to_response(db, updated)
+    return await _to_response(db, updated, user["id"])
 
 
 @router.patch("/{appointment_id}/reject", response_model=AppointmentResponse)
@@ -271,7 +296,7 @@ async def reject_appointment(
         "Your appointment request was declined.",
         {"appointment_id": appointment_id},
     )
-    return await _to_response(db, updated)
+    return await _to_response(db, updated, user["id"])
 
 
 @router.patch("/{appointment_id}/complete", response_model=AppointmentResponse)
@@ -289,5 +314,5 @@ async def complete_appointment(
         "Your appointment was marked as completed.",
         {"appointment_id": appointment_id},
     )
-    return await _to_response(db, updated)
+    return await _to_response(db, updated, user["id"])
 

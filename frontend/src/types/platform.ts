@@ -32,6 +32,7 @@ export interface LawyerProfile {
   name: string
   email: string
   phone?: string
+  profile_picture_url?: string
   bio: string
   years_of_experience: number
   categories: LegalCategory[]
@@ -63,6 +64,10 @@ export interface Appointment {
   lawyer_name: string
   client_id: string
   client_name: string
+  /** Only populated for the assigned lawyer; absent for every other viewer. */
+  client_profile_picture_url?: string
+  client_phone?: string
+  client_city?: string
   category: LegalCategory
   start_time: string
   end_time: string

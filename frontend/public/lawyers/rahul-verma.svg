@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Illustrated fictional portrait of a lawyer">
+  <defs>
+    <clipPath id="a"><circle cx="128" cy="128" r="128"/></clipPath>
+  </defs>
+  <g clip-path="url(#a)">
+    <rect width="256" height="256" fill="#F1F5F9"/>
+    <circle cx="128" cy="150" r="96" fill="#E2E8F0"/>
+    <path d="M34 256 L34 232 C34 196 76 174 128 174 C180 174 222 196 222 232 L222 256 Z" fill="#334155"/>
+    <path d="M96 175 L128 252 L110 256 L78 191 Z" fill="#475569"/>
+    <path d="M160 175 L128 252 L146 256 L178 191 Z" fill="#475569"/>
+    <path d="M108 177 L128 194 L148 177 L142 173 L128 186 L114 173 Z" fill="#FFFFFF"/>
+    <path d="M123 192 L133 192 L136 238 L128 248 L120 238 Z" fill="#1E3A8A"/>
+    <path d="M112 138 L144 138 L144 176 L128 190 L112 176 Z" fill="#B98050"/>
+    <ellipse cx="86" cy="112" rx="7" ry="11" fill="#C98F5E"/>
+    <ellipse cx="170" cy="112" rx="7" ry="11" fill="#C98F5E"/>
+    <ellipse cx="128" cy="104" rx="43" ry="50" fill="#C98F5E"/>
+    <path d="M85 98 C85 52 106 40 128 40 C154 40 174 58 171 98 C166 72 152 64 128 64 C106 64 92 74 85 98 Z" fill="#12100E"/>
+    <path d="M102 91 Q112 85 122 89" stroke="#181512" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+    <path d="M134 89 Q144 85 154 91" stroke="#181512" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+    <circle cx="112" cy="106" r="13.5" fill="none" stroke="#2F3A45" stroke-width="3"/>
+    <circle cx="144" cy="106" r="13.5" fill="none" stroke="#2F3A45" stroke-width="3"/>
+    <path d="M125.5 104 L130.5 104" stroke="#2F3A45" stroke-width="3"/>
+    <ellipse cx="112" cy="106" rx="4.4" ry="5.4" fill="#241C14"/>
+    <ellipse cx="144" cy="106" rx="4.4" ry="5.4" fill="#241C14"/>
+    <path d="M128 112 L125.5 123 Q128 126 131.5 123" stroke="#A26A38" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M116 134 Q128 141 140 134" stroke="#7C4A44" stroke-width="4" fill="none" stroke-linecap="round"/>
+  </g>
+</svg>

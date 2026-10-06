@@ -13,9 +13,10 @@ export interface User {
   email: string
   phone?: string
   role: UserRole
-  city?: string
-  address?: string
-  bio?: string
+city?: string
+address?: string
+profile_picture_url?: string
+bio?: string
   preferred_language?: string
   is_email_verified: boolean
   status: UserStatus

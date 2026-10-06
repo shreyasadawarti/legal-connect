@@ -51,6 +51,7 @@ class LawyerProfileResponse(BaseModel):
     name: str
     email: str
     phone: Optional[str] = None
+    profile_picture_url: Optional[str] = None
     bio: str = ""
     years_of_experience: int = 0
     categories: list[LegalCategory] = Field(default_factory=lambda: [LegalCategory.OTHER])
@@ -103,8 +104,10 @@ def serialize_lawyer_profile(
         profile["name"] = user.get("name", "")
         profile["email"] = user.get("email", "")
         profile["phone"] = user.get("phone")
+        profile["profile_picture_url"] = user.get("profile_picture_url")
     else:
         profile.setdefault("name", "")
         profile.setdefault("email", "")
         profile.setdefault("phone", None)
+        profile.setdefault("profile_picture_url", None)
     return profile

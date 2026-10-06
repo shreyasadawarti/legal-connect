@@ -39,6 +39,9 @@ class AppointmentResponse(BaseModel):
     lawyer_name: str = ""
     client_id: str
     client_name: str = ""
+    client_profile_picture_url: Optional[str] = None
+    client_phone: Optional[str] = None
+    client_city: Optional[str] = None
     category: LegalCategory = LegalCategory.OTHER
     start_time: datetime
     end_time: datetime

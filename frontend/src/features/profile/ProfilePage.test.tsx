@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, vi } from 'vitest'
@@ -13,13 +13,17 @@ vi.mock('@/services/userService', async (importOriginal) => {
     ...actual,
     getMyProfile: vi.fn(),
     updateMyProfile: vi.fn(),
+    uploadProfilePicture: vi.fn(),
+    removeProfilePicture: vi.fn(),
   }
 })
 
-import { getMyProfile, updateMyProfile } from '@/services/userService'
+import { getMyProfile, removeProfilePicture, updateMyProfile, uploadProfilePicture } from '@/services/userService'
 
 const mockedGet = vi.mocked(getMyProfile)
 const mockedUpdate = vi.mocked(updateMyProfile)
+const mockedUpload = vi.mocked(uploadProfilePicture)
+const mockedRemove = vi.mocked(removeProfilePicture)
 
 const profile = {
   id: 'a'.repeat(24),
@@ -57,6 +61,11 @@ describe('ProfilePage', () => {
     vi.clearAllMocks()
     mockedGet.mockResolvedValue({ ...profile })
     mockedUpdate.mockImplementation(async (payload) => ({ ...profile, ...payload }))
+    mockedUpload.mockImplementation(async () => ({
+      ...profile,
+      profile_picture_url: 'https://fake/picture_1',
+    }))
+    mockedRemove.mockImplementation(async () => ({ ...profile, profile_picture_url: undefined }))
   })
 
   // Regression: the page used to read `user.profile.city`, a nested shape the API
@@ -138,5 +147,78 @@ describe('ProfilePage', () => {
     await userEvent.click(screen.getByRole('button', { name: /save changes/i }))
 
     await screen.findByText(/at most 20 characters/i)
+  })
+
+  it('uploads a chosen picture only after Save picture is pressed', async () => {
+    renderProfile()
+
+    await waitFor(() => expect(screen.getByLabelText('Full name')).toHaveValue('Test User'))
+
+    const file = new File(['binary'], 'me.png', { type: 'image/png' })
+    await userEvent.upload(screen.getByLabelText(/choose image/i), file)
+
+    expect(mockedUpload).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: /save picture/i }))
+
+    await waitFor(() => expect(mockedUpload).toHaveBeenCalledTimes(1))
+    expect(mockedUpload.mock.calls[0][0].name).toBe('me.png')
+    await screen.findByText(/profile picture updated/i)
+  })
+
+  // The `accept` attribute already stops the OS file picker offering most bad
+  // files, so this guards the paths it cannot: drag-and-drop and paste.
+  it('rejects an unsupported file type before uploading', async () => {
+    renderProfile()
+
+    await waitFor(() => expect(screen.getByLabelText('Full name')).toHaveValue('Test User'))
+
+    const input = document.getElementById('profile-picture') as HTMLInputElement
+    const file = new File(['MZ'], 'payload.png', { type: 'application/x-msdownload' })
+    fireEvent.change(input, { target: { files: [file] } })
+
+    await screen.findByText(/choose a png, jpg, or webp image/i)
+    expect(mockedUpload).not.toHaveBeenCalled()
+  })
+
+  it('rejects an oversized image before uploading', async () => {
+    renderProfile()
+
+    await waitFor(() => expect(screen.getByLabelText('Full name')).toHaveValue('Test User'))
+
+    const file = new File(['x'], 'big.png', { type: 'image/png' })
+    Object.defineProperty(file, 'size', { value: 5 * 1024 * 1024 + 1 })
+    await userEvent.upload(screen.getByLabelText(/choose image/i), file)
+
+    await screen.findByText(/maximum is 5 mb/i)
+    expect(mockedUpload).not.toHaveBeenCalled()
+  })
+
+  it('removes a stored picture', async () => {
+    mockedGet.mockResolvedValue({ ...profile, profile_picture_url: 'https://fake/picture_1' })
+    renderProfile()
+
+    await waitFor(() => expect(screen.getByLabelText('Full name')).toHaveValue('Test User'))
+
+    await userEvent.click(screen.getByRole('button', { name: /^remove$/i }))
+
+    await waitFor(() => expect(mockedRemove).toHaveBeenCalledTimes(1))
+    await screen.findByText(/profile picture updated/i)
+  })
+
+  it('surfaces an upload failure instead of failing silently', async () => {
+    mockedUpload.mockRejectedValue({
+      response: { data: { detail: 'Profile picture is too large (max 5 MB)' } },
+    })
+    renderProfile()
+
+    await waitFor(() => expect(screen.getByLabelText('Full name')).toHaveValue('Test User'))
+
+    const file = new File(['binary'], 'me.png', { type: 'image/png' })
+    await userEvent.upload(screen.getByLabelText(/choose image/i), file)
+    await userEvent.click(screen.getByRole('button', { name: /save picture/i }))
+
+    await screen.findByText(/too large \(max 5 mb\)/i)
+    expect(screen.queryByText(/profile picture updated/i)).not.toBeInTheDocument()
   })
 })

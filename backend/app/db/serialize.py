@@ -68,6 +68,8 @@ def user_to_doc(row: User) -> dict[str, Any]:
         "preferred_language": row.preferred_language,
         "city": row.city,
         "address": row.address,
+        "profile_picture_url": row.profile_picture_url,
+        "profile_picture_public_id": row.profile_picture_public_id,
         "bio": row.bio,
         "is_email_verified": bool(row.is_email_verified),
         "status": enum_value(row.status),

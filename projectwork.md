@@ -329,8 +329,49 @@ matches the flat API response and the form seeds from `GET /users/me`.
 
 ---
 
-*Last updated: MongoDB → MySQL migration complete (17 tables, revision `d4bf9214682c`, legacy
-ObjectId-compatible `CHAR(24)` IDs preserved) plus the profile address field (`fef6641d722c`).
-Single admin `admin@legalconnect.com` via `/admin/login`. Six public pages (How It Works, About,
-FAQ, Contact, Privacy, Terms) replaced the Under Construction placeholders. Backend pytest 122 ✔ ·
-frontend vitest 22 ✔ · build ✔ · lint ✔.*
+## 10. Profile Pictures
+
+`users.profile_picture_url` (`VARCHAR(500)`) and `users.profile_picture_public_id`
+(`VARCHAR(255)`), revision `a7c31e9b4d20`. Both nullable, on `users` rather than the lawyer-only
+profile table, so Citizen, Lawyer, and Admin all share one pair of columns.
+
+| Surface | How it works |
+|---|---|
+| Upload | `POST /api/v1/users/me/profile-picture`, multipart, reuses `get_document_storage` and `CloudinaryService.upload_bytes(resource_type="image")` |
+| Remove | `DELETE /api/v1/users/me/profile-picture` (a dedicated route because `PATCH /users/me` drops `None`, so it can never clear a stored column) |
+| Limits | 5 MB cap, `image/png` `image/jpeg` `image/webp`; empty 400, oversize 413, wrong type 422, Cloudinary down 503 |
+| Replace | The previous asset is deleted via `storage.delete(old_public_id, "image")`, best-effort, after the new row is saved |
+| Demo lawyers | Six flat vector portraits in `frontend/public/lawyers/`, assigned by `scripts/seed_database.py` |
+
+The demo portraits are **illustrations, not photographs of real people**. Each is a distinct
+geometric head-and-shoulders figure in business attire, so nothing depicts a real identifiable
+individual.
+
+`AppointmentResponse` gained `client_profile_picture_url`, `client_phone`, and `client_city`.
+These are populated **only when the requester is the lawyer assigned to that appointment**
+(`appointments.py::_to_response`) and are omitted from the payload entirely otherwise. A citizen
+reading their own request gets no citizen-detail keys, and a non-participant is still rejected
+with 403 by `_get_participant_appointment`. Nothing citizen-specific is added to the public
+`GET /lawyers` response.
+
+**Known limitation.** Profile pictures are stored as normal Cloudinary public-delivery assets, so
+the API never hands a citizen's URL to anyone else, but the URL itself would work if it were
+leaked or copy-pasted. Closing that fully needs `type="authenticated"` uploads plus the existing
+`signed_url()` helper and a proxy route, which is more machinery than this change took on.
+
+**Seed fix.** `scripts/seed_database.py` was not re-runnable: `reviews` has a unique constraint on
+`(lawyer_id, reviewer_id)` and a re-run re-books the same lawyer/client pairs, so the insert raised
+a duplicate-key error. It is now guarded with `find_by_user_and_lawyer`. The demo-portrait step only
+fills an *empty* `profile_picture_url`, so a database seeded before this feature picks a portrait up
+on the next run while a picture someone actually uploaded is never discarded.
+
+---
+
+*Last updated: Profile pictures added (revision `a7c31e9b4d20`): shared `users` columns, Cloudinary
+upload/remove routes with old-asset cleanup, six fictional demo lawyer portraits, and lawyer-only
+citizen details on appointment responses. Seed script made re-runnable. Backend pytest 138 passed,
+frontend vitest 33 passed, build and lint clean, plus 17 live checks against real Cloudinary and
+MySQL. Prior work: MongoDB to MySQL migration (17 tables, revision `d4bf9214682c`, legacy
+ObjectId-compatible `CHAR(24)` IDs preserved), profile address field (`fef6641d722c`), and six real
+public pages replacing the Under Construction placeholders. Single admin `admin@legalconnect.com`
+via `/admin/login`.*
