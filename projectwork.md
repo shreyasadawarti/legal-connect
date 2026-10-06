@@ -367,11 +367,100 @@ on the next run while a picture someone actually uploaded is never discarded.
 
 ---
 
-*Last updated: Profile pictures added (revision `a7c31e9b4d20`): shared `users` columns, Cloudinary
-upload/remove routes with old-asset cleanup, six fictional demo lawyer portraits, and lawyer-only
-citizen details on appointment responses. Seed script made re-runnable. Backend pytest 138 passed,
-frontend vitest 33 passed, build and lint clean, plus 17 live checks against real Cloudinary and
-MySQL. Prior work: MongoDB to MySQL migration (17 tables, revision `d4bf9214682c`, legacy
-ObjectId-compatible `CHAR(24)` IDs preserved), profile address field (`fef6641d722c`), and six real
-public pages replacing the Under Construction placeholders. Single admin `admin@legalconnect.com`
-via `/admin/login`.*
+## 11. Search, Voice, Earnings, Dashboard and Complaints
+
+Five reported issues, fixed together. Two of the five reports named a symptom correctly but pointed
+at the wrong cause, so each was traced to its real origin before anything was changed: earnings
+*already* included confirmed appointments, and the voice feature *already* checked both
+`SpeechRecognition` and `webkitSpeechRecognition`. No migration was required — all five reuse
+existing tables, columns and endpoints.
+
+**Lawyer search by name.** `q` filtered `bio`, `specializations` and `languages` only. A lawyer's
+displayed name lives on `users.name`, and `_search_filters` (`lawyer_repository.py:221`) builds the
+query from `lawyer_profiles` with no join, so the name was merged into the response *after*
+filtering and could never affect it — searching a name returned "no lawyers found". Fixed with a
+correlated `EXISTS` on `users.name`, reusing the idiom already used for category membership in the
+same function. `EXISTS` rather than a join keeps `total` and `items` from disagreeing. No test had
+ever passed `q`.
+
+**AI voice input.** The unsupported-browser warning read `recognitionRef.current` during the first
+render, but the recognition instance is constructed in a mount effect, so the first render always
+saw `null` and painted the warning; mutating a ref does not re-render, so it never cleared. Now
+derived from state. `onerror` also discarded `event.error`, so a denied microphone was
+indistinguishable from an unsupported browser; `no-speech`, `audio-capture`, `not-allowed`,
+`service-not-allowed` and `network` now map to distinct messages, while `aborted` stays silent
+because it is raised by the component's own cleanup. `start()` is guarded against
+`InvalidStateError` on a double click, `rec.lang` is set from `navigator.language`, and the button
+gained an accessible name, an `aria-pressed` state, and `disabled` when the API is absent.
+
+**Lawyer earnings.** Split into **earned** (completed) and **projected** (confirmed but not yet
+completed). Both surfaces read a single `useLawyerEarnings` hook under the one `['lawyer-earnings']`
+key, so the earnings page and the dashboard cannot disagree. The actual defect behind "earnings only
+update after Mark Complete" was that this key was never invalidated after an appointment changed
+status — `LawyerAppointmentsPage` refreshed only `['lawyer-appointments']` — so the page served a
+stale snapshot until a manual reload. A `hourly_rate` of 0 now prompts to set a rate instead of
+rendering silent zero rows.
+
+**Lawyer dashboard.** Rebuilt from a three-tile stub into six stat tiles (earned, projected, pending,
+upcoming, completed, rating), six quick actions, inline accept and decline on pending requests,
+upcoming and recently completed lists, recent activity from notifications, and a profile and
+verification card that surfaces `rejection_reason`. Everything is derived client-side from endpoints
+that already existed: no new routes and no chart library. Loading, error and content states are
+explicit and match `AdminDashboard`, rather than rendering placeholder dashes on failure.
+
+**Citizen complaints against a lawyer.** `POST /complaints` previously had **no role check and no
+ownership check** — any authenticated user of any role could attach any `appointment_id`, including
+one they had no part in. It is now citizen-only, and when `related_appointment_id` is supplied the
+endpoint resolves the appointment (404 if absent) and requires the caller to be its `client_id`
+(403 otherwise). This makes the "complaint against the wrong lawyer" case structurally impossible:
+the lawyer is derived from the verified appointment and is never read from the request body. The
+column already existed end to end across schema, router, repository and ORM and was simply never
+sent by the frontend. On the profile page the option appears only when the citizen has an
+appointment with that lawyer and is absent otherwise, with the most recent such appointment
+attached. No new column and no migration.
+
+### Verification
+
+| Suite | Result |
+|---|---|
+| Backend pytest (real MySQL) | 149 passed |
+| Frontend vitest | 69 passed |
+| `npm run build` (`tsc -b`, strict) | clean |
+| `npm run lint` | clean |
+
+47 tests were added (11 backend, 36 frontend). Where a test covers a defect rather than new
+behaviour, it was confirmed to fail against the code it replaces: 4 for the name search, 1 for
+voice support detection, 2 for the complaint role check, 2 for complaint appointment ownership, and
+the dashboard error-state test. The remainder cover new behaviour, for which there is no prior code
+to fail against.
+
+### Known limitations
+
+- `hourly_rate` is read once and applied to all history, so changing it retroactively revalues past
+  earnings. Correcting this needs a per-appointment rate snapshot column.
+- The dashboard, the earnings hook and the complaint eligibility gate each fetch `page_size: 100`
+  with no pagination, so totals and eligibility silently truncate past that.
+- The `payments` table is unreachable dead code: `payee_id` stores the *client*, so a lawyer always
+  receives an empty list, and `POST /payments` is reachable only via `makePayment()`, which has no
+  callers. Earnings are therefore derived from appointments, so no second earnings model was
+  introduced.
+- `frontend/src/test/setup.ts` gained an `Element.prototype.scrollTo` stub, because jsdom has no
+  layout engine and the AI assistant page cannot otherwise be rendered in a test at all.
+- **Not yet verified in a real browser.** The voice fix and the dashboard layout have been exercised
+  only under jsdom and against MySQL.
+
+---
+
+*Last updated: Search, voice, earnings, dashboard and complaints fixed: lawyer name search now
+matches `users.name`, AI voice input support detection and permission errors corrected, earnings
+split into earned and projected with the stale `['lawyer-earnings']` cache now invalidated on
+status change, lawyer dashboard rebuilt, and `POST /complaints` given the role and
+appointment-ownership checks it previously lacked plus a gated citizen reporting form. No
+migration. Backend pytest 149 passed, frontend vitest 69 passed, build and lint clean. Prior work:
+profile pictures (revision `a7c31e9b4d20`: shared `users` columns, Cloudinary upload/remove routes
+with old-asset cleanup, six fictional demo lawyer portraits, lawyer-only citizen details on
+appointment responses, re-runnable seed script, 138 backend and 33 frontend tests plus 17 live
+checks against real Cloudinary and MySQL), MongoDB to MySQL migration (17 tables, revision
+`d4bf9214682c`, legacy ObjectId-compatible `CHAR(24)` IDs preserved), profile address field
+(`fef6641d722c`), and six real public pages replacing the Under Construction placeholders. Single
+admin `admin@legalconnect.com` via `/admin/login`.*
