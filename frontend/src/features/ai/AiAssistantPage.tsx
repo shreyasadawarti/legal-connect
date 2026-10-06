@@ -39,6 +39,19 @@ const CATEGORY_NAMES: Record<LegalCategory, string> = {
 }
 
 // The DOM lib does not declare the Web Speech API, so the shape is described locally.
+interface SpeechRecognitionAlternativeLike {
+  transcript?: string
+}
+
+interface SpeechRecognitionResultLike {
+  0?: SpeechRecognitionAlternativeLike
+  isFinal?: boolean
+}
+
+interface SpeechRecognitionEventLike {
+  results?: ArrayLike<SpeechRecognitionResultLike>
+}
+
 interface SpeechRecognitionLike {
   continuous: boolean
   interimResults: boolean
@@ -46,10 +59,14 @@ interface SpeechRecognitionLike {
   start: () => void
   stop: () => void
   abort: () => void
-  onresult: (event: { results?: Array<Array<{ transcript?: string }>> }) => void
-  onend: () => void
-  onerror: (event: { error?: string }) => void
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null
+  onend: (() => void) | null
+  onerror: ((event: { error?: string }) => void) | null
 }
+
+// A trailing word can land just after Chrome decides the utterance ended, so the
+// auto-send waits a moment rather than firing inside the `onend` handler.
+const AUTO_SEND_DELAY_MS = 1200
 
 type RecognitionConstructor = new () => SpeechRecognitionLike
 
@@ -82,9 +99,16 @@ function AssistantTab() {
   const [input, setInput] = useState('')
   const [error, setError] = useState('')
   const [listening, setListening] = useState(false)
+  const [pendingSpeech, setPendingSpeech] = useState<string | null>(null)
   const [speechSupported] = useState(() => getRecognitionCtor() !== null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
+  // Whatever was already in the box before the mic opened, so starting a session
+  // does not wipe a half-typed question.
+  const baseTextRef = useRef('')
+  // The full composed box value after the most recent result event. `onend` runs in
+  // the mount effect and cannot read fresh state, so it reads this instead.
+  const spokenRef = useRef('')
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
@@ -95,16 +119,47 @@ function AssistantTab() {
     if (!Ctor) return
     const rec = new Ctor()
     recognitionRef.current = rec
+    // `interimResults` streams words into the box while the user is still speaking.
+    // `continuous` stays false so a pause ends the session, which is what triggers
+    // the auto-send.
     rec.continuous = false
-    rec.interimResults = false
+    rec.interimResults = true
     rec.lang = navigator.language
-    rec.onresult = (e) => {
-      const text = e.results?.[0]?.[0]?.transcript || ''
-      setInput((prev) => (prev ? `${prev} ${text}` : text))
+    rec.onresult = (event) => {
+      const results = event?.results
+      if (!results || results.length === 0) return
+      let committed = ''
+      let provisional = ''
+      // The whole list is walked on every event. Reading only index 0, as this used
+      // to, silently discarded every chunk after the first within one session.
+      for (let i = 0; i < results.length; i += 1) {
+        const result = results[i]
+        const text = result?.[0]?.transcript || ''
+        // Only an explicit `isFinal === false` is provisional. Browsers always set
+        // the flag, so treating a missing one as final keeps a settled transcript
+        // from being discarded.
+        if (result?.isFinal === false) {
+          provisional += text
+        } else {
+          committed += text
+        }
+      }
+      const base = baseTextRef.current.trim()
+      const spoken = [base, committed + provisional].filter(Boolean).join(' ')
+      spokenRef.current = spoken
+      setInput(spoken)
     }
-    rec.onend = () => setListening(false)
+    rec.onend = () => {
+      setListening(false)
+      const spoken = spokenRef.current.trim()
+      spokenRef.current = ''
+      if (!spoken) return
+      setPendingSpeech(spoken)
+    }
     rec.onerror = (e) => {
       setListening(false)
+      // A failed session must not leave a queued message to fire on its own.
+      setPendingSpeech(null)
       // `aborted` is raised by our own stop()/unmount cleanup, so it stays silent.
       if (!e.error || e.error === 'aborted') return
       setError(
@@ -135,17 +190,43 @@ function AssistantTab() {
     },
   })
 
-  const toggleMic = () => {
-    if (listening) {
-      recognitionRef.current?.stop?.()
-      setListening(false)
-      return
-    }
+  const submit = (text: string) => {
+    const trimmed = text.trim()
+    if (!trimmed || chat.isPending) return
+    setMessages((prev) => [...prev, { role: 'user', content: trimmed }])
+    setInput('')
+    setError('')
+    chat.mutate(trimmed)
+  }
+
+  // The auto-send timer fires outside the mount effect, which closed over the first
+  // render's `messages`. This ref always points at the current `submit`.
+  const submitRef = useRef(submit)
+  useEffect(() => {
+    submitRef.current = submit
+  })
+
+  // Queued auto-send. Keyed on `pendingSpeech`, so clearing it cancels the timer
+  // through the effect cleanup.
+  useEffect(() => {
+    if (!pendingSpeech) return
+    const timer = setTimeout(() => {
+      setPendingSpeech(null)
+      submitRef.current(pendingSpeech)
+    }, AUTO_SEND_DELAY_MS)
+    return () => clearTimeout(timer)
+  }, [pendingSpeech])
+
+  const startListening = () => {
     const rec = recognitionRef.current
     if (!rec) {
       setError('Voice input is not supported by this browser. Try Chrome or Edge.')
       return
     }
+    // Cancels any queued auto-send and resumes appending to what is already there.
+    setPendingSpeech(null)
+    baseTextRef.current = input
+    spokenRef.current = ''
     setError('')
     try {
       rec.start()
@@ -156,13 +237,24 @@ function AssistantTab() {
     }
   }
 
+  const toggleMic = () => {
+    // A queued message is not final: click the mic again to keep speaking instead.
+    if (pendingSpeech) {
+      startListening()
+      return
+    }
+    if (listening) {
+      recognitionRef.current?.stop?.()
+      setListening(false)
+      return
+    }
+    startListening()
+  }
+
   const send = () => {
-    const text = input.trim()
-    if (!text || chat.isPending) return
-    setMessages((prev) => [...prev, { role: 'user', content: text }])
-    setInput('')
-    setError('')
-    chat.mutate(text)
+    // Never ship a half-spoken sentence, and never race a queued auto-send.
+    if (listening || pendingSpeech) return
+    submit(input)
   }
 
   return (
@@ -224,12 +316,24 @@ function AssistantTab() {
         <button
           type="button"
           onClick={send}
-          disabled={!input.trim() || chat.isPending}
+          aria-label="Send"
+          disabled={!input.trim() || chat.isPending || listening || !!pendingSpeech}
           className="rounded-lg bg-brand-600 px-3 py-2 text-white hover:bg-brand-700 disabled:opacity-60"
         >
           <Send className="h-4 w-4" />
         </button>
       </div>
+      {(listening || pendingSpeech) && (
+        <p
+          aria-live="polite"
+          className="mt-1 flex items-center gap-1 text-xs text-surface-500"
+        >
+          <AudioLines className="h-3 w-3 animate-pulse" />
+          {listening
+            ? 'Listening… speak now'
+            : 'Sending… click the mic to keep speaking instead'}
+        </p>
+      )}
       {!speechSupported && (
         <p className="mt-1 flex items-center gap-1 text-xs text-surface-400">
           <AudioLines className="h-3 w-3" /> Voice input isn't supported by your browser.
