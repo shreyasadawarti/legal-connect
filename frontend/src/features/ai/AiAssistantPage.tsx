@@ -38,15 +38,17 @@ const CATEGORY_NAMES: Record<LegalCategory, string> = {
   other: 'Other',
 }
 
+// The DOM lib does not declare the Web Speech API, so the shape is described locally.
 interface SpeechRecognitionLike {
   continuous: boolean
   interimResults: boolean
+  lang: string
   start: () => void
   stop: () => void
   abort: () => void
   onresult: (event: { results?: Array<Array<{ transcript?: string }>> }) => void
   onend: () => void
-  onerror: () => void
+  onerror: (event: { error?: string }) => void
 }
 
 type RecognitionConstructor = new () => SpeechRecognitionLike
@@ -60,6 +62,15 @@ function getRecognitionCtor(): RecognitionConstructor | null {
   return w.SpeechRecognition || w.webkitSpeechRecognition || null
 }
 
+const SPEECH_ERRORS: Record<string, string> = {
+  'no-speech': "I didn't catch anything. Please try again.",
+  'audio-capture': 'No microphone was found. Check your audio input device.',
+  'not-allowed': 'Microphone access was denied. Allow it in your browser settings to use voice input.',
+  'service-not-allowed':
+    'Your browser blocked microphone access. Enable it in the site settings for this page.',
+  network: 'Voice recognition needs an internet connection.',
+}
+
 function AssistantTab() {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -71,6 +82,7 @@ function AssistantTab() {
   const [input, setInput] = useState('')
   const [error, setError] = useState('')
   const [listening, setListening] = useState(false)
+  const [speechSupported] = useState(() => getRecognitionCtor() !== null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
 
@@ -80,20 +92,29 @@ function AssistantTab() {
 
   useEffect(() => {
     const Ctor = getRecognitionCtor()
-    if (Ctor) {
-      const rec = new Ctor()
-      recognitionRef.current = rec
-      rec.continuous = false
-      rec.interimResults = false
-      rec.onresult = (e) => {
-        const text = e.results?.[0]?.[0]?.transcript || ''
-        setInput((prev) => (prev ? `${prev} ${text}` : text))
-      }
-      rec.onend = () => setListening(false)
-      rec.onerror = () => setListening(false)
+    if (!Ctor) return
+    const rec = new Ctor()
+    recognitionRef.current = rec
+    rec.continuous = false
+    rec.interimResults = false
+    rec.lang = navigator.language
+    rec.onresult = (e) => {
+      const text = e.results?.[0]?.[0]?.transcript || ''
+      setInput((prev) => (prev ? `${prev} ${text}` : text))
+    }
+    rec.onend = () => setListening(false)
+    rec.onerror = (e) => {
+      setListening(false)
+      // `aborted` is raised by our own stop()/unmount cleanup, so it stays silent.
+      if (!e.error || e.error === 'aborted') return
+      setError(
+        SPEECH_ERRORS[e.error] ||
+          'Voice input failed. Please try again or type your question.',
+      )
     }
     return () => {
       recognitionRef.current?.abort()
+      recognitionRef.current = null
     }
   }, [])
 
@@ -120,9 +141,18 @@ function AssistantTab() {
       setListening(false)
       return
     }
-    if (recognitionRef.current) {
-      recognitionRef.current.start()
+    const rec = recognitionRef.current
+    if (!rec) {
+      setError('Voice input is not supported by this browser. Try Chrome or Edge.')
+      return
+    }
+    setError('')
+    try {
+      rec.start()
       setListening(true)
+    } catch {
+      // start() throws InvalidStateError if a session is already active.
+      setListening(false)
     }
   }
 
@@ -173,11 +203,14 @@ function AssistantTab() {
           type="button"
           onClick={toggleMic}
           title={listening ? 'Stop listening' : 'Speak'}
+          aria-label={listening ? 'Stop listening' : 'Start voice input'}
+          aria-pressed={listening}
+          disabled={!speechSupported}
           className={`rounded-full p-2.5 transition ${
             listening
               ? 'bg-red-100 text-red-600 dark:bg-red-900/30'
               : 'bg-surface-100 text-surface-600 hover:bg-surface-200 dark:bg-surface-800 dark:text-surface-300'
-          }`}
+          } disabled:opacity-50`}
         >
           {listening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
         </button>
@@ -197,7 +230,7 @@ function AssistantTab() {
           <Send className="h-4 w-4" />
         </button>
       </div>
-      {!recognitionRef.current && (
+      {!speechSupported && (
         <p className="mt-1 flex items-center gap-1 text-xs text-surface-400">
           <AudioLines className="h-3 w-3" /> Voice input isn't supported by your browser.
         </p>

@@ -2,7 +2,9 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Loader2, MapPin, MessageSquare, Star } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
+import UserAvatar from '@/components/UserAvatar'
 import BookAppointmentSection from '@/features/appointments/BookAppointmentSection'
+import ReportLawyerSection from '@/features/lawyers/ReportLawyerSection'
 import { getLawyerProfile } from '@/services/lawyerService'
 import { listLawyerReviews } from '@/services/socialService'
 
@@ -51,8 +53,10 @@ export default function LawyerProfilePage() {
         <div className="lg:col-span-2">
           <div className="rounded-2xl border border-surface-200 bg-white p-6 dark:border-surface-800 dark:bg-surface-800">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h1 className="text-2xl font-bold">{lawyer.name}</h1>
+              <div className="flex items-start gap-4">
+                <UserAvatar src={lawyer.profile_picture_url} name={lawyer.name} size="xl" />
+                <div>
+                  <h1 className="text-2xl font-bold">{lawyer.name}</h1>
                 <div className="mt-2 flex items-center gap-3 text-sm text-surface-500 dark:text-surface-400">
                   <span className="flex items-center gap-1">
                     <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
@@ -63,6 +67,7 @@ export default function LawyerProfilePage() {
                       <MapPin className="h-4 w-4" /> {lawyer.city}
                     </span>
                   )}
+                </div>
                 </div>
               </div>
               {lawyer.is_verified && (
@@ -139,6 +144,7 @@ export default function LawyerProfilePage() {
             <MessageSquare className="h-4 w-4" /> Message
           </button>
           <BookAppointmentSection lawyer={lawyer} />
+          <ReportLawyerSection lawyerUserId={lawyer.user_id} />
         </div>
       </div>
     </div>

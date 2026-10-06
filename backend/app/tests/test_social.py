@@ -217,6 +217,105 @@ async def test_create_complaint(client: AsyncClient):
     assert resp.json()["status"] == "OPEN"
 
 
+async def test_complaint_against_own_appointment_is_accepted(
+    client: AsyncClient, db
+):
+    # The citizen booked this lawyer, so reporting them must succeed and the link must
+    # be persisted so admins can trace the complaint back to the lawyer.
+    lawyer = await _setup_lawyer(client, db)
+    user = await register_user(client)
+    appt_id = await _complete_appointment(client, db, lawyer, user)
+
+    resp = await client.post(
+        "/api/v1/complaints",
+        headers=auth_headers(user),
+        json={
+            "subject": "Unprofessional behaviour",
+            "description": "The lawyer was late and did not follow through.",
+            "related_appointment_id": appt_id,
+        },
+    )
+    assert resp.status_code == 201
+    assert resp.json()["related_appointment_id"] == appt_id
+
+    mine = await client.get("/api/v1/complaints", headers=auth_headers(user))
+    assert mine.status_code == 200
+    assert mine.json()["total"] == 1
+    assert mine.json()["items"][0]["related_appointment_id"] == appt_id
+
+
+async def test_complaint_rejects_another_citizens_appointment(
+    client: AsyncClient, db
+):
+    # A citizen must not be able to attach someone else's appointment id.
+    lawyer = await _setup_lawyer(client, db)
+    owner = await register_user(client)
+    appt_id = await _complete_appointment(client, db, lawyer, owner)
+
+    attacker = await register_user(
+        client, name="Attacker", email="attacker@example.com"
+    )
+    resp = await client.post(
+        "/api/v1/complaints",
+        headers=auth_headers(attacker),
+        json={
+            "subject": "Framing someone",
+            "description": "This is not my appointment.",
+            "related_appointment_id": appt_id,
+        },
+    )
+    assert resp.status_code == 403
+
+    # Nothing was written.
+    listed = await client.get("/api/v1/complaints", headers=auth_headers(attacker))
+    assert listed.json()["total"] == 0
+
+
+async def test_complaint_rejects_unknown_appointment(client: AsyncClient):
+    user = await register_user(client)
+    resp = await client.post(
+        "/api/v1/complaints",
+        headers=auth_headers(user),
+        json={
+            "subject": "Bad link",
+            "description": "That appointment does not exist.",
+            "related_appointment_id": "000000000000000000000000",
+        },
+    )
+    assert resp.status_code == 404
+
+
+async def test_citizen_cannot_file_complaint_against_the_lawyer_side(
+    client: AsyncClient, db
+):
+    # The lawyer on the appointment is the target, never the caller, so the lawyer must
+    # not be able to file a complaint naming themselves.
+    lawyer = await _setup_lawyer(client, db)
+    user = await register_user(client)
+    appt_id = await _complete_appointment(client, db, lawyer, user)
+
+    resp = await client.post(
+        "/api/v1/complaints",
+        headers=auth_headers(lawyer),
+        json={
+            "subject": "Not allowed",
+            "description": "A lawyer cannot be a complainant.",
+            "related_appointment_id": appt_id,
+        },
+    )
+    assert resp.status_code == 403
+
+
+async def test_admin_cannot_file_complaint(client: AsyncClient):
+    admin = await register_admin(client)
+    resp = await client.post(
+        "/api/v1/complaints",
+        headers=auth_headers(admin),
+        json={"subject": "Admin issue", "description": "Admins are not citizens."},
+    )
+    assert resp.status_code == 403
+
+
 async def test_admin_resolves_complaint(client: AsyncClient, db):
     user = await register_user(client)
     created = await client.post(

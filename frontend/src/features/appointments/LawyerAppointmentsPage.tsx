@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Calendar, Check, Loader2, X } from 'lucide-react'
+import { Calendar, Check, Loader2, MapPin, Phone, X } from 'lucide-react'
 
+import UserAvatar from '@/components/UserAvatar'
 import {
   completeAppointment,
   confirmAppointment,
@@ -24,7 +25,13 @@ function fmtDate(iso: string) {
 
 function Row({ appointment }: { appointment: Appointment }) {
   const queryClient = useQueryClient()
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['lawyer-appointments'] })
+  // An appointment's status drives both the list and the earnings split, so both
+  // caches are refreshed together. The dashboard reads a child key of
+  // ['lawyer-appointments'] and is invalidated by this prefix match.
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['lawyer-appointments'] })
+    queryClient.invalidateQueries({ queryKey: ['lawyer-earnings'] })
+  }
 
   const confirm = useMutation({ mutationFn: () => confirmAppointment(appointment.id), onSuccess: invalidate })
   const reject = useMutation({ mutationFn: () => rejectAppointment(appointment.id), onSuccess: invalidate })
@@ -32,9 +39,32 @@ function Row({ appointment }: { appointment: Appointment }) {
 
   return (
     <div className="rounded-2xl border border-surface-200 bg-white p-5 dark:border-surface-800 dark:bg-surface-800">
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold">{appointment.client_name}</h3>
-        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLOR[appointment.status] ?? ''}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <UserAvatar src={appointment.client_profile_picture_url} name={appointment.client_name} size="md" />
+          <div className="min-w-0">
+            <h3 className="font-semibold">{appointment.client_name}</h3>
+            {/* Contact details reach only the assigned lawyer; the API omits them
+                for every other viewer, so these render only when present. */}
+            {(appointment.client_phone || appointment.client_city) && (
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-surface-500 dark:text-surface-400">
+                {appointment.client_phone && (
+                  <span className="inline-flex items-center gap-1">
+                    <Phone className="h-3.5 w-3.5" />
+                    {appointment.client_phone}
+                  </span>
+                )}
+                {appointment.client_city && (
+                  <span className="inline-flex items-center gap-1">
+                    <MapPin className="h-3.5 w-3.5" />
+                    {appointment.client_city}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLOR[appointment.status] ?? ''}`}>
           {appointment.status}
         </span>
       </div>

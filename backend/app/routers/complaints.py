@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import CurrentUser, require_db, require_roles
 from app.models.platform import ComplaintStatus
 from app.models.user import UserRole
+from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.complaint_repository import ComplaintRepository
 from app.repositories.notification_repository import NotificationRepository
 from app.schemas.complaint import (
@@ -22,8 +23,26 @@ router = APIRouter(prefix="/complaints", tags=["complaints"])
 async def create_complaint(
     payload: ComplaintCreate,
     user: CurrentUser,
+    _: Annotated[dict, Depends(require_roles(UserRole.USER))],
     db: AsyncSession = Depends(require_db),
 ):
+    # A lawyer complaint must be tied to an appointment the citizen actually booked, so
+    # the linked appointment is verified as belonging to the caller. The lawyer being
+    # complained about is derived from that appointment server-side and is never taken
+    # from the request body, which makes a mismatched lawyer structurally impossible.
+    if payload.related_appointment_id:
+        appointment = await AppointmentRepository(db).find_by_id(
+            payload.related_appointment_id
+        )
+        if appointment is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found"
+            )
+        if appointment["client_id"] != user["id"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only report a lawyer you have an appointment with",
+            )
     repo = ComplaintRepository(db)
     doc = await repo.create(
         user_id=user["id"],

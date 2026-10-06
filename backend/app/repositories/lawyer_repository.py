@@ -12,6 +12,7 @@ from app.db.models import (
     LawyerLanguage,
     LawyerProfile,
     LawyerSpecialization,
+    User,
 )
 from app.db.serialize import lawyer_profile_to_doc
 from app.db.serialize import enum_value
@@ -244,8 +245,19 @@ class LawyerRepository:
             filters.append(func.lower(LawyerProfile.city).like(_like(city.lower()), escape="\\"))
         if q:
             pattern = _like(q.lower())
+            # The displayed lawyer name lives on `users`, not `lawyer_profiles`, and the
+            # profile rows are selected without a join, so it needs its own EXISTS subquery.
+            name_match = (
+                select(User.name)
+                .where(
+                    User.id == LawyerProfile.user_id,
+                    func.lower(User.name).like(pattern, escape="\\"),
+                )
+                .exists()
+            )
             filters.append(
-                func.lower(LawyerProfile.bio).like(pattern, escape="\\")
+                name_match
+                | func.lower(LawyerProfile.bio).like(pattern, escape="\\")
                 | select(LawyerSpecialization.position)
                 .where(
                     LawyerSpecialization.lawyer_profile_id == LawyerProfile.id,

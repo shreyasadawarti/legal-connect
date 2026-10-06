@@ -91,6 +91,113 @@ async def test_search_excludes_unverified_by_default_filter(client: AsyncClient,
     assert resp.json()["items"][0]["is_verified"] is False
 
 
+async def test_search_by_name_matches_lawyer(client: AsyncClient, db):
+    # The lawyer's display name lives on `users.name`, which the directory query
+    # previously never filtered on, so searching a name returned nothing.
+    lawyer = await register_lawyer(
+        client, name="Ananya Sharma", email="ananya@example.com"
+    )
+    await create_lawyer_profile(client, lawyer)
+    await activate_lawyer(db, lawyer["user"]["id"])
+
+    resp = await client.get("/api/v1/lawyers", params={"q": "Ananya"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 1
+    assert body["items"][0]["name"] == "Ananya Sharma"
+    assert body["items"][0]["user_id"] == lawyer["user"]["id"]
+
+
+async def test_search_by_name_is_case_insensitive(client: AsyncClient, db):
+    lawyer = await register_lawyer(
+        client, name="Ananya Sharma", email="ananya@example.com"
+    )
+    await create_lawyer_profile(client, lawyer)
+    await activate_lawyer(db, lawyer["user"]["id"])
+
+    resp = await client.get("/api/v1/lawyers", params={"q": "ananya"})
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 1
+
+
+async def test_search_by_name_discriminates_between_lawyers(client: AsyncClient, db):
+    # Two lawyers share identical profiles (same bio, specializations, languages and
+    # city), so only the name can tell the results apart.
+    ananya = await register_lawyer(
+        client, name="Ananya Sharma", email="ananya@example.com"
+    )
+    await create_lawyer_profile(client, ananya)
+    await activate_lawyer(db, ananya["user"]["id"])
+
+    rahul = await register_lawyer(
+        client, name="Rahul Verma", email="rahul@example.com"
+    )
+    await create_lawyer_profile(client, rahul)
+    await activate_lawyer(db, rahul["user"]["id"])
+
+    resp = await client.get("/api/v1/lawyers", params={"q": "Ananya"})
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 1
+    assert resp.json()["items"][0]["name"] == "Ananya Sharma"
+
+    resp = await client.get("/api/v1/lawyers", params={"q": "Verma"})
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 1
+    assert resp.json()["items"][0]["name"] == "Rahul Verma"
+
+
+async def test_search_by_name_still_matches_existing_profile_fields(
+    client: AsyncClient, db
+):
+    # Guards against the name EXISTS subquery displacing the pre-existing
+    # bio / specialization / language matching.
+    lawyer = await _setup_activated_lawyer(client, db)
+
+    for term in ("experienced", "Divorce", "Custody", "English", "family lawyer"):
+        resp = await client.get("/api/v1/lawyers", params={"q": term})
+        assert resp.status_code == 200, term
+        assert resp.json()["total"] == 1, term
+
+
+async def test_search_by_name_composes_with_other_filters(client: AsyncClient, db):
+    lawyer = await register_lawyer(
+        client, name="Ananya Sharma", email="ananya@example.com"
+    )
+    await create_lawyer_profile(client, lawyer)
+    await activate_lawyer(db, lawyer["user"]["id"])
+
+    # Matches the name but the city filter excludes her.
+    resp = await client.get(
+        "/api/v1/lawyers", params={"q": "Ananya", "city": "Delhi"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 0
+
+    # Matches both.
+    resp = await client.get(
+        "/api/v1/lawyers", params={"q": "Ananya", "city": "Mumbai"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 1
+
+
+async def test_search_total_matches_returned_items_for_name_query(
+    client: AsyncClient, db
+):
+    # The name predicate is an EXISTS subquery, so it must not duplicate rows in the
+    # COUNT query -- otherwise `total` and `items` disagree.
+    lawyer = await register_lawyer(
+        client, name="Ananya Sharma", email="ananya@example.com"
+    )
+    await create_lawyer_profile(client, lawyer)
+    await activate_lawyer(db, lawyer["user"]["id"])
+
+    resp = await client.get("/api/v1/lawyers", params={"q": "a"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == len(body["items"])
+
+
 async def test_unknown_category_rejected(client: AsyncClient):
     resp = await client.get("/api/v1/lawyers", params={"category": "bogus"})
     assert resp.status_code == 422
