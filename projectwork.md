@@ -383,15 +383,32 @@ correlated `EXISTS` on `users.name`, reusing the idiom already used for category
 same function. `EXISTS` rather than a join keeps `total` and `items` from disagreeing. No test had
 ever passed `q`.
 
-**AI voice input.** The unsupported-browser warning read `recognitionRef.current` during the first
-render, but the recognition instance is constructed in a mount effect, so the first render always
-saw `null` and painted the warning; mutating a ref does not re-render, so it never cleared. Now
-derived from state. `onerror` also discarded `event.error`, so a denied microphone was
-indistinguishable from an unsupported browser; `no-speech`, `audio-capture`, `not-allowed`,
-`service-not-allowed` and `network` now map to distinct messages, while `aborted` stays silent
-because it is raised by the component's own cleanup. `start()` is guarded against
+**AI voice input.** Two separate defects. First, the unsupported-browser warning read
+`recognitionRef.current` during the first render, but the recognition instance is constructed in a
+mount effect, so the first render always saw `null` and painted the warning; mutating a ref does not
+re-render, so it never cleared. Now derived from state. `onerror` also discarded `event.error`, so a
+denied microphone was indistinguishable from an unsupported browser; `no-speech`, `audio-capture`,
+`not-allowed`, `service-not-allowed` and `network` now map to distinct messages, while `aborted` stays
+silent because it is raised by the component's own cleanup. `start()` is guarded against
 `InvalidStateError` on a double click, `rec.lang` is set from `navigator.language`, and the button
 gained an accessible name, an `aria-pressed` state, and `disabled` when the API is absent.
+
+Second, the recognition was configured `interimResults = false`, so it captured one finished sentence
+and nothing appeared in the box while the user was still speaking. It is now `true`, so words stream
+into the message box as they are spoken. The result handler was also reading `results[0]` only: with
+interim results the browser *appends* chunks to the result list, so index 0 alone froze the box on the
+first word and discarded the rest of the sentence. The handler now walks the entire list and separates
+committed text (`isFinal`) from provisional text, keeping anything typed before the mic opened as a
+prefix.
+
+`continuous` deliberately stays `false`, because a pause is what ends the session and therefore what
+triggers the auto-send. A finished utterance is submitted 1.2s after `onend`, so a trailing word can
+still land. Since a pause *inside* one sentence splits it into two utterances, clicking the mic while
+a send is queued cancels that send and resumes appending instead — this is the only way to keep talking
+after a natural mid-sentence pause. An error also cancels a queued send, so a failed session can never
+fire a question on its own. Because provisional text shares the input with typed text, a
+user-initiated send is refused while listening, so a half-spoken sentence cannot be shipped by pressing
+Enter. The send button also gained the `aria-label` it was missing.
 
 **Lawyer earnings.** Split into **earned** (completed) and **projected** (confirmed but not yet
 completed). Both surfaces read a single `useLawyerEarnings` hook under the one `['lawyer-earnings']`
@@ -424,15 +441,15 @@ attached. No new column and no migration.
 | Suite | Result |
 |---|---|
 | Backend pytest (real MySQL) | 149 passed |
-| Frontend vitest | 69 passed |
+| Frontend vitest | 81 passed |
 | `npm run build` (`tsc -b`, strict) | clean |
 | `npm run lint` | clean |
 
-47 tests were added (11 backend, 36 frontend). Where a test covers a defect rather than new
-behaviour, it was confirmed to fail against the code it replaces: 4 for the name search, 1 for
-voice support detection, 2 for the complaint role check, 2 for complaint appointment ownership, and
-the dashboard error-state test. The remainder cover new behaviour, for which there is no prior code
-to fail against.
+59 tests were added across these fixes (11 backend, 48 frontend). Where a test covers a defect rather
+than new behaviour, it was confirmed to fail against the code it replaces: 4 for the name search, 1
+for voice support detection, 2 for the complaint role check, 2 for complaint appointment ownership, the
+dashboard error-state test, and 2 for live voice transcription. The remainder cover new behaviour, for
+which there is no prior code to fail against.
 
 ### Known limitations
 
@@ -446,18 +463,26 @@ to fail against.
   introduced.
 - `frontend/src/test/setup.ts` gained an `Element.prototype.scrollTo` stub, because jsdom has no
   layout engine and the AI assistant page cannot otherwise be rendered in a test at all.
+- Chrome's interim results are **provisional**: a word can appear and then be revised as recognition
+  improves, so live text is a guess that stabilises. This is inherent to streaming transcription,
+  not a defect in the handler.
+- Auto-send cannot tell a mid-sentence pause from the end of a thought, so a question containing a
+  natural pause may be submitted as two messages. Continuous listening was rejected as the fix
+  because it removes the pause that triggers the auto-send. The remedy available to the user is to
+  click the mic again during the 1.2s delay and keep speaking.
 - **Not yet verified in a real browser.** The voice fix and the dashboard layout have been exercised
   only under jsdom and against MySQL.
 
 ---
 
-*Last updated: Search, voice, earnings, dashboard and complaints fixed: lawyer name search now
-matches `users.name`, AI voice input support detection and permission errors corrected, earnings
-split into earned and projected with the stale `['lawyer-earnings']` cache now invalidated on
-status change, lawyer dashboard rebuilt, and `POST /complaints` given the role and
-appointment-ownership checks it previously lacked plus a gated citizen reporting form. No
-migration. Backend pytest 149 passed, frontend vitest 69 passed, build and lint clean. Prior work:
-profile pictures (revision `a7c31e9b4d20`: shared `users` columns, Cloudinary upload/remove routes
+*Last updated: AI voice input now streams live (`interimResults = true`) and auto-sends 1.2s after
+a pause, with the result handler fixed to walk every chunk instead of only the first; clicking the mic
+during the delay cancels the pending send. Also in this round: lawyer name search now matches
+`users.name`, earnings split into earned and projected with the stale `['lawyer-earnings']` cache now
+invalidated on status change, lawyer dashboard rebuilt, and `POST /complaints` given the role and
+appointment-ownership checks it previously lacked plus a gated citizen reporting form. No migration.
+Backend pytest 149 passed, frontend vitest 81 passed, build and lint clean. Prior work: profile
+pictures (revision `a7c31e9b4d20`: shared `users` columns, Cloudinary upload/remove routes
 with old-asset cleanup, six fictional demo lawyer portraits, lawyer-only citizen details on
 appointment responses, re-runnable seed script, 138 backend and 33 frontend tests plus 17 live
 checks against real Cloudinary and MySQL), MongoDB to MySQL migration (17 tables, revision
