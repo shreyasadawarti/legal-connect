@@ -200,6 +200,7 @@ async def _seed(db) -> None:
                 "city": spec["city"],
                 "latitude": spec["latitude"],
                 "longitude": spec["longitude"],
+                "is_demo": True,
             },
         )
         await lawyers_repo.set_verification_status(uid, LawyerStatus.ACTIVE)

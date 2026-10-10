@@ -134,11 +134,18 @@ export default function LawyerListPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="font-semibold">{lawyer.name}</h3>
-                    {lawyer.is_verified && (
-                      <span className="shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/40 dark:text-green-400">
-                        Verified
-                      </span>
-                    )}
+                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                      {lawyer.is_demo && (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                          Demo
+                        </span>
+                      )}
+                      {lawyer.is_verified && (
+                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/40 dark:text-green-400">
+                          Verified
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="mt-1 flex items-center gap-2 text-sm text-surface-500 dark:text-surface-400">
                     <Star className="h-4 w-4 fill-amber-400 text-amber-400" />

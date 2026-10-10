@@ -61,6 +61,7 @@ def get_engine() -> AsyncEngine:
             pool_size=10,
             max_overflow=20,
             future=True,
+            connect_args=settings.mysql_connect_args,
         )
         _session_factory = async_sessionmaker(
             _engine, expire_on_commit=False, class_=AsyncSession
@@ -112,7 +113,17 @@ async def ensure_database_exists() -> None:
     Uses CREATE DATABASE IF NOT EXISTS, so it is safe to run against an existing
     database and never destroys data.
     """
-    server_engine = create_async_engine(settings.mysql_server_dsn, future=True)
+    if settings.mysql_skip_database_creation:
+        logger.info(
+            "Skipping database creation for '%s' (MYSQL_SKIP_DATABASE_CREATION is set)",
+            settings.mysql_database,
+        )
+        return
+    server_engine = create_async_engine(
+        settings.mysql_server_dsn,
+        future=True,
+        connect_args=settings.mysql_connect_args,
+    )
     try:
         async with server_engine.connect() as conn:
             # Checked first rather than relying on CREATE DATABASE IF NOT EXISTS:

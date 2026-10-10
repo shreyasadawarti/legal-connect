@@ -3,9 +3,9 @@
 Production topology:
 
 ```
-Vercel (React/Vite SPA)  ──HTTPS/WS──►  Render (FastAPI + uvicorn)
+Netlify (React/Vite SPA)  ──HTTPS/WS──►  Render (FastAPI + uvicorn)
         │                                      │
-        │                                      ├── Railway MySQL 8 (asyncmy)
+        │                                      ├── Aiven MySQL 8 (asyncmy, TLS)
         │                                      ├── Cloudinary (documents/images)
         │                                      ├── OpenAI-compatible API (AI)
         │                                      ├── SMTP / Resend (email)
@@ -15,8 +15,8 @@ Vercel (React/Vite SPA)  ──HTTPS/WS──►  Render (FastAPI + uvicorn)
 
 ```mermaid
 flowchart LR
-    V[Vercel - React SPA] --> B[Render - FastAPI]
-    B --> M[(MySQL 8)]
+    V[Netlify - React SPA] --> B[Render - FastAPI]
+    B --> M[(Aiven MySQL 8)]
     B --> C[(Cloudinary)]
     B --> AI[OpenAI-compatible API]
     B --> E[(Resend / SMTP)]
@@ -24,11 +24,11 @@ flowchart LR
     V --> RAZ[Razorpay Checkout]
 ```
 
-The repo already contains `render.yaml` (backend Blueprint) and
-`frontend/vercel.json` (Vite SPA rewrites). This runbook is the order of
-operations. Everything marked **(secret)** must be filled in from the provider
-dashboard — `render.yaml` declares them with `sync: false` on purpose so no
-secret is committed.
+The repo already contains `render.yaml` (backend Blueprint) and `netlify.toml`
+(frontend build + SPA fallback, with `frontend/public/_redirects` as a backstop).
+This runbook is the order of operations. Everything marked **(secret)** must be
+filled in from the provider dashboard — `render.yaml` declares them with
+`sync: false` on purpose so no secret is committed.
 
 > Run every local command from the repository root unless stated otherwise.
 
@@ -36,9 +36,9 @@ secret is committed.
 
 ## 0. Prerequisites
 
-- A GitHub repo containing this project (Render and Vercel deploy from Git).
-- Accounts: [Railway](https://railway.app), [Render](https://render.com),
-  [Vercel](https://vercel.com), [Razorpay](https://dashboard.razorpay.com),
+- A GitHub repo containing this project (Render and Netlify deploy from Git).
+- Accounts: [Aiven](https://aiven.io), [Render](https://render.com),
+  [Netlify](https://netlify.com), [Razorpay](https://dashboard.razorpay.com),
   and (for documents) [Cloudinary](https://cloudinary.com).
 - Generate two strong secrets (≥32 random chars) for `SECRET_KEY` and
   `JWT_SECRET_KEY`, e.g. `python -c "import secrets;print(secrets.token_urlsafe(48))"`.
@@ -47,26 +47,58 @@ secret is committed.
 
 ---
 
-## Phase B — MySQL on Railway
+## Phase A — Back up the existing data (non-destructive)
 
-1. Railway → **New Project → Provision MySQL**.
-2. Open the MySQL service → **Variables** / **Connect** tab and copy the
-   **public** host and port (Render is an external network; the private
-   `*.railway.internal` host will not resolve).
-3. Map them to the backend's variable names (Railway names may differ):
+Before migrating anything, capture a verified logical backup of the current MySQL
+database and keep the original untouched until production is confirmed:
 
-   | Railway value | Backend env var |
-   |---|---|
-   | `MYSQLHOST` / public host | `MYSQL_HOST` |
-   | `MYSQLPORT` / public port | `MYSQL_PORT` |
-   | `MYSQLUSER` | `MYSQL_USER` |
-   | `MYSQLPASSWORD` | `MYSQL_PASSWORD` |
-   | `MYSQLDATABASE` | `MYSQL_DATABASE` (`legal_connect`) |
+```powershell
+# from the repo root; adjust credentials as needed
+$env:MYSQL_PWD="<local-root-password>"
+mysqldump --single-transaction --routines --triggers --set-gtid-purged=OFF `
+  --default-character-set=utf8mb4 -h localhost -u root legal_connect `
+  > legal_connect_backup_<date>.sql
+```
 
+Verify it by restoring into a scratch database (`legal_connect_restore_check`) and
+comparing row counts. `alembic current` should read `c9e8f1a2b3d4` (head) before
+you migrate.
+
+---
+
+## Phase B — MySQL on Aiven
+
+Aiven runs standard MySQL 8 with full foreign-key support, so the schema works
+unchanged (PlanetScale does **not** support foreign keys and is unsuitable here).
+
+1. Aiven Console → **Create service → MySQL** → **Free** plan → region **Asia,
+   Bangalore (blr)** (or the closest region). The free tier needs no credit card.
+2. Create the database **`legal_connect`** and copy the connection details:
+   **host**, **port** (non-standard), **user** (`avnadmin`), **password**, and the
+   **CA certificate** (download `ca.pem`).
+3. Import the backup over TLS, then confirm the row counts match Phase A:
+
+   ```powershell
+   mysql --ssl-mode=REQUIRED -h <aiven-host> -P <aiven-port> -u avnadmin -p `
+     legal_connect < legal_connect_backup_<date>.sql
+   ```
+
+   Do **not** run `scripts/seed_database.py` — the data is already migrated.
 4. Do **not** create tables by hand. The backend start command runs
    `alembic upgrade head`, and `AUTO_CREATE_TABLES=false` in production.
 
-Keep these values handy for Phase C and for creating the admin account (Phase F).
+Map the Aiven values to the backend variables in Phase C:
+
+   | Aiven value | Backend env var |
+   |---|---|
+   | host | `MYSQL_HOST` |
+   | port | `MYSQL_PORT` |
+   | `avnadmin` | `MYSQL_USER` |
+   | password | `MYSQL_PASSWORD` **(secret)** |
+   | (created) | `MYSQL_DATABASE` (`legal_connect`) |
+   | `ca.pem` contents | `MYSQL_SSL_CA` **(secret)** |
+
+Keep these handy for Phase C and for creating the admin account (Phase F).
 
 ---
 
@@ -79,7 +111,8 @@ Keep these values handy for Phase C and for creating the admin account (Phase F)
    the pinned `asyncmy`/`SQLAlchemy` versions, so keep that file in the repo.
 2. Fill in every **(secret)** variable on the service (Render prompts for each
    `sync: false` key). Values applied automatically: `APP_ENV=production`,
-   `MYSQL_DATABASE=legal_connect`, `MYSQL_PORT=3306`, `AUTO_CREATE_TABLES=false`,
+   `MYSQL_DATABASE=legal_connect`, `AUTO_CREATE_TABLES=false`,
+   `MYSQL_SSL_REQUIRED=true`, `MYSQL_SKIP_DATABASE_CREATION=true`,
    `AI_PROVIDER=openai`, `SMTP_PORT=587`, `SMTP_USE_TLS=true`,
    `GEOCODING_PROVIDER=nominatim`, `WEBRTC_STUN_SERVER`, `CLOUDINARY_FOLDER`.
 
@@ -87,10 +120,13 @@ Keep these values handy for Phase C and for creating the admin account (Phase F)
    |---|---|
    | `SECRET_KEY` **(secret)** | strong random string |
    | `JWT_SECRET_KEY` **(secret)** | strong random string (different from above) |
-   | `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` **(secret)** | from Phase B |
-   | `FRONTEND_URL` **(secret)** | the Vercel URL (add now as a placeholder, fix after Phase D, e.g. `https://legal-connect.vercel.app`) |
+   | `MYSQL_HOST` **(secret)** | Aiven host |
+   | `MYSQL_PORT` **(secret)** | Aiven port (non-standard — copy from the service Overview, **not** 3306) |
+   | `MYSQL_USER` / `MYSQL_PASSWORD` **(secret)** | `avnadmin` / Aiven password |
+   | `MYSQL_SSL_CA` **(secret)** | Aiven `ca.pem` contents; `\n` escapes are accepted as a single line |
+   | `FRONTEND_URL` **(secret)** | the Netlify URL (add now as a placeholder, fix after Phase D, e.g. `https://legal-connect.netlify.app`) |
    | `BACKEND_URL` **(secret)** | this service's URL, e.g. `https://legal-connect-backend.onrender.com` |
-   | `CORS_ORIGINS` **(secret)** | the Vercel origin(s), comma-separated — must **not** be localhost |
+   | `CORS_ORIGINS` **(secret)** | the Netlify origin(s), comma-separated — must **not** be localhost |
    | `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` **(secret)** | Cloudinary dashboard |
    | `OPENAI_API_KEY` / `OPENAI_MODEL` / `OPENAI_BASE_URL` **(secret)** | AI provider (optional — AI degrades gracefully) |
    | `SMTP_HOST` / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_FROM_EMAIL` **(secret)** | email provider, or set `RESEND_API_KEY` instead |
@@ -112,11 +148,12 @@ Keep these values handy for Phase C and for creating the admin account (Phase F)
 
 ---
 
-## Phase D — Frontend on Vercel
+## Phase D — Frontend on Netlify
 
-1. Vercel → **New Project**, import the repo, set **Root Directory = `frontend`**
-   (the framework preset is detected from `frontend/vercel.json`, which rewrites
-   all routes to `index.html`).
+1. Netlify → **Add new site → Import an existing project**, pick the repo. The
+   repo's `netlify.toml` sets **base = `frontend`**, **build = `npm run build`**,
+   **publish = `dist`**, and a `/*  /index.html  200` SPA fallback so client-side
+   routes survive a refresh (a drag-and-drop deploy of `frontend/dist` works too).
 2. Add environment variables (Vite exposes only `VITE_`-prefixed vars at build
    time — set them before/at first build):
 
@@ -127,12 +164,11 @@ Keep these values handy for Phase C and for creating the admin account (Phase F)
 
    With `VITE_API_URL` set, `SOCKET_URL` is derived automatically as the same
    host over `wss://`; the app connects to `<SOCKET_URL>/api/v1/ws`. Do **not**
-   set `VITE_API_URL` to `/api/v1` — the Vercel rewrite sends unknown paths to
-   `index.html`, so a relative API base would not reach Render.
+   set `VITE_API_URL` to `/api/v1` — a relative API base cannot reach Render.
 
-3. Deploy, then open the Vercel URL. If the SPA cannot reach the API, it is
+3. Deploy, then open the Netlify URL. If the SPA cannot reach the API, it is
    almost always CORS: go back to Phase C and set `CORS_ORIGINS` to the exact
-   Vercel origin (scheme + host, no trailing slash) and redeploy the backend.
+   Netlify origin (scheme + host, no trailing slash) and redeploy the backend.
 
 ---
 
@@ -155,16 +191,18 @@ Keep these values handy for Phase C and for creating the admin account (Phase F)
 ## Phase F — Create the administrator account
 
 Admins are never created through the public registration endpoint. Run the
-script locally against the **production** MySQL, with the Railway credentials in
+script locally against the **production** MySQL, with the Aiven credentials in
 the environment:
 
 ```powershell
 # PowerShell, from the repo root
-$env:MYSQL_HOST="<railway-public-host>"
-$env:MYSQL_PORT="<railway-public-port>"
-$env:MYSQL_USER="<railway-user>"
-$env:MYSQL_PASSWORD="<railway-password>"
+$env:MYSQL_HOST="<aiven-host>"
+$env:MYSQL_PORT="<aiven-port>"
+$env:MYSQL_USER="<aiven-user>"
+$env:MYSQL_PASSWORD="<aiven-password>"
 $env:MYSQL_DATABASE="legal_connect"
+$env:MYSQL_SSL_REQUIRED="true"   # Aiven enforces TLS
+$env:MYSQL_SSL_CA=(Get-Content .\ca.pem -Raw)
 
 python scripts/create_admin.py --name "Administrator" --email admin@yourdomain.com --password "ChangeMe123!"
 ```
@@ -174,6 +212,25 @@ already has the env vars). The script runs `alembic upgrade head` itself, so it
 is safe even on a fresh database.
 
 Log in at `/admin/login` with that email/password, then change the password.
+
+---
+
+## Phase G — Demo data and credentials
+
+The migrated database still contains the seeded demo lawyers and their shared
+`DemoPass123` password. Two safe, non-destructive steps:
+
+1. **Mark the demo lawyers.** Migration `c9e8f1a2b3d4` backfills `is_demo` for the
+   known seed emails, so they render with a **Demo** badge next to **Verified**
+   while staying bookable. No action needed if the migration ran.
+2. **Rotate the demo passwords** so the well-known one is not live in public:
+
+   ```powershell
+   python scripts/rotate_demo_credentials.py --include-citizens
+   ```
+
+   Copy the printed credentials somewhere safe — they are not saved to disk.
+   Never delete or overwrite the migrated records.
 
 ---
 
@@ -203,7 +260,7 @@ alembic upgrade head
 ```
 
 Additive migrations only; never edit tables by hand. Current chain head after
-this work: `b3c4d5e6f7a8`.
+this work: `c9e8f1a2b3d4`.
 
 ---
 
@@ -212,13 +269,15 @@ this work: `b3c4d5e6f7a8`.
 | Symptom | Likely cause / fix |
 |---|---|
 | Backend won't boot / Render says "exited" | `validate_production_settings` guard: weak `SECRET_KEY`/`JWT_SECRET_KEY`, `MYSQL_HOST` is localhost, or `CORS_ORIGINS` is localhost-only. Fix the env var and redeploy. |
-| Frontend network errors in console | `CORS_ORIGINS` on the backend must contain the exact Vercel origin; or `VITE_API_URL` is wrong/relative. |
-| `MYSQL ... can't connect` on Render | Use Railway's **public** host/port, not `*.railway.internal`. |
+| Frontend network errors in console | `CORS_ORIGINS` on the backend must contain the exact Netlify origin; or `VITE_API_URL` is wrong/relative. |
+| `MYSQL ... can't connect` on Render | Aiven requires TLS: set `MYSQL_SSL_REQUIRED=true` and `MYSQL_SSL_CA` (the `ca.pem` contents); check the non-standard port and that the service allows your IPs. |
+| Aiven `CREATE DATABASE` permission error on boot | Set `MYSQL_SKIP_DATABASE_CREATION=true` (Aiven pre-creates the database). |
 | WebSocket fails to connect | `VITE_SOCKET_URL`/`VITE_API_URL` host wrong, or backend offline; check the browser's WS URL is `wss://<backend>/api/v1/ws?token=...`. |
 | Registration emails never arrive | SMTP/Resend not configured; unverified accounts cannot log in. |
 | Payment **Pay** button shows a config error | `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` missing → endpoint returns 503 on purpose. |
 | Webhook 400 | `RAZORPAY_WEBHOOK_SECRET` on Render does not match the Razorpay webhook secret. |
 | 401 immediately after login | Tokens are per-session; ensure the backend clock/`JWT_*` settings are consistent and `JWT_SECRET_KEY` did not change mid-session. |
+| "Page not found" on refresh in Netlify | SPA fallback missing — confirm `netlify.toml` (or `frontend/public/_redirects`) is deployed and Publish directory is `dist`. |
 
 ---
 

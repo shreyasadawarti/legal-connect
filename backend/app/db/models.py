@@ -130,6 +130,9 @@ class LawyerProfile(Base):
         default=LawyerStatus.PENDING_VERIFICATION,
     )
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Marks seeded demo profiles so the UI can distinguish them from real,
+    # verified lawyers without changing their bookable status.
+    is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     rejection_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # Documents own the Cloudinary asset; MySQL stores only this reference.
     verification_document_id: Mapped[Optional[str]] = mapped_column(

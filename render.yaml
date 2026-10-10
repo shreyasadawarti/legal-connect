@@ -17,12 +17,15 @@ services:
       - key: SECRET_KEY
         sync: false
       # MySQL must be a host reachable from the cloud -- the developer's local
-      # MySQL instance is not. Set these to a managed provider (Railway,
-      # PlanetScale, Aiven, or similar) before deploying.
+      # MySQL instance is not. Aiven (free tier) is the recommended provider: it
+      # runs standard MySQL 8 with full foreign-key support. PlanetScale is not
+      # usable here because it does not support foreign keys.
       - key: MYSQL_HOST
         sync: false
+      # Aiven assigns a non-standard port (not 3306); copy it from the service
+      # Overview / Quick connect panel and enter it here.
       - key: MYSQL_PORT
-        value: "3306"
+        sync: false
       - key: MYSQL_USER
         sync: false
       - key: MYSQL_PASSWORD
@@ -31,6 +34,14 @@ services:
         value: legal_connect
       - key: MYSQL_CHARSET
         value: utf8mb4
+      # Aiven enforces TLS. Paste its CA certificate into MYSQL_SSL_CA and set
+      # MYSQL_SKIP_DATABASE_CREATION=true (Aiven pre-creates the database).
+      - key: MYSQL_SSL_REQUIRED
+        value: "true"
+      - key: MYSQL_SSL_CA
+        sync: false
+      - key: MYSQL_SKIP_DATABASE_CREATION
+        value: "true"
       # Schema is managed by Alembic, not create_all, in production.
       - key: AUTO_CREATE_TABLES
         value: "false"

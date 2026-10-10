@@ -67,6 +67,7 @@ class LawyerProfileResponse(BaseModel):
     rating_count: int = 0
     verification_status: LawyerStatus = LawyerStatus.PENDING_VERIFICATION
     is_verified: bool = False
+    is_demo: bool = False
     rejection_reason: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

@@ -70,11 +70,18 @@ export default function LawyerProfilePage() {
                 </div>
                 </div>
               </div>
-              {lawyer.is_verified && (
-                <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700 dark:bg-green-900/40 dark:text-green-400">
-                  Verified
-                </span>
-              )}
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                {lawyer.is_demo && (
+                  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                    Demo
+                  </span>
+                )}
+                {lawyer.is_verified && (
+                  <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700 dark:bg-green-900/40 dark:text-green-400">
+                    Verified
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="mt-4 flex flex-wrap gap-1.5">

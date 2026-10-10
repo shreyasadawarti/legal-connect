@@ -1,3 +1,4 @@
+import ssl
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -37,6 +38,17 @@ class Settings(BaseSettings):
     # Creates any missing tables on startup. Never drops or alters existing
     # tables; schema changes are handled by Alembic (`alembic upgrade head`).
     auto_create_tables: bool = True
+    # Managed providers such as Aiven enforce TLS, so encrypted connections are
+    # opt-in here to keep local development unchanged.
+    mysql_ssl_required: bool = False
+    # PEM contents of the provider's CA certificate. Passed as a CData string, so
+    # the literal "\n" escapes used in env vars are normalised below. When it is
+    # omitted the connection is still encrypted but the server certificate is not
+    # verified against a trusted CA.
+    mysql_ssl_ca: str = ""
+    # Managed providers pre-create the database, so the startup/schema bootstrap
+    # that issues CREATE DATABASE must be skippable (the app user often lacks it).
+    mysql_skip_database_creation: bool = False
 
     # --- MongoDB (legacy; only used by scripts/migrate_mongodb_to_mysql.py) ---
     mongodb_uri: str = ""
@@ -110,6 +122,25 @@ class Settings(BaseSettings):
             f"mysql+asyncmy://{self.mysql_user}:{quote_plus(self.mysql_password)}"
             f"@{self.mysql_host}:{self.mysql_port}/?charset={self.mysql_charset}"
         )
+
+    @property
+    def mysql_connect_args(self) -> dict:
+        """Extra `asyncmy` connect arguments (TLS) for the MySQL engine.
+
+        `asyncmy` accepts an `ssl.SSLContext` for its `ssl` parameter. When a CA
+        PEM is configured the server certificate is verified; otherwise the
+        connection is encrypted without certificate verification.
+        """
+        if not self.mysql_ssl_required:
+            return {}
+        ca_pem = self.mysql_ssl_ca.strip()
+        if ca_pem:
+            context = ssl.create_default_context(cadata=ca_pem.replace("\\n", "\n"))
+        else:
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+        return {"ssl": context}
 
     @property
     def is_mysql_configured(self) -> bool:

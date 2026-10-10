@@ -101,6 +101,7 @@ def lawyer_profile_to_doc(row: LawyerProfile) -> dict[str, Any]:
         "rating_count": row.rating_count,
         "verification_status": enum_value(row.verification_status),
         "is_verified": bool(row.is_verified),
+        "is_demo": bool(row.is_demo),
         "rejection_reason": row.rejection_reason,
         "verification_document_id": row.verification_document_id,
         "created_at": row.created_at,

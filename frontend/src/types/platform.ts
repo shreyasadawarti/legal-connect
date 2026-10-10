@@ -49,6 +49,7 @@ export interface LawyerProfile {
   rating_count: number
   verification_status: LawyerStatus
   is_verified: boolean
+  is_demo?: boolean
   rejection_reason?: string
   verification_document_id?: string
 }
