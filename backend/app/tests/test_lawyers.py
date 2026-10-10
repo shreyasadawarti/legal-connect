@@ -62,6 +62,28 @@ async def test_public_profile_by_user_id(client: AsyncClient, db):
     assert resp.json()["name"] == "Test Lawyer"
 
 
+async def test_public_profile_redacts_contact_details(client: AsyncClient, db):
+    lawyer = await _setup_activated_lawyer(client, db)
+
+    detail = await client.get(f"/api/v1/lawyers/{lawyer['user']['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["email"] is None
+    assert detail.json()["phone"] is None
+
+    search = await client.get("/api/v1/lawyers")
+    assert search.status_code == 200
+    for item in search.json()["items"]:
+        assert item["email"] is None
+        assert item["phone"] is None
+
+
+async def test_own_profile_keeps_contact_details(client: AsyncClient, db):
+    lawyer = await _setup_activated_lawyer(client, db)
+    me = await client.get("/api/v1/lawyers/me/profile", headers=auth_headers(lawyer))
+    assert me.status_code == 200
+    assert me.json()["email"] == "lawyer@example.com"
+
+
 async def test_public_profile_missing_returns_404(client: AsyncClient):
     resp = await client.get("/api/v1/lawyers/000000000000000000000000")
     assert resp.status_code == 404

@@ -38,7 +38,7 @@ export default function AdminDashboard() {
     { label: 'Appointments', value: stats?.total_appointments ?? 0 },
     { label: 'Open Complaints', value: stats?.open_complaints ?? 0 },
     { label: 'Pending Verifications', value: stats?.pending_verifications ?? 0 },
-    { label: 'Revenue', value: `$${Number(stats?.total_revenue ?? 0).toLocaleString()}` },
+    { label: 'Revenue', value: `₹${Number(stats?.total_revenue ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}` },
   ]
 
   const appointmentsByStatus = analytics

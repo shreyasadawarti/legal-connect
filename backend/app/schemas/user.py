@@ -3,7 +3,18 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
+from app.models.platform import LegalCategory
 from app.models.user import UserRole, UserStatus
+
+
+class PreferencesUpdate(BaseModel):
+    notifications: Optional[dict[str, bool]] = None
+    interests: Optional[list[LegalCategory]] = None
+    privacy: Optional[dict[str, bool]] = None
+
+
+class DeleteAccountRequest(BaseModel):
+    password: str = Field(min_length=1, max_length=72)
 
 
 class ProfileUpdate(BaseModel):

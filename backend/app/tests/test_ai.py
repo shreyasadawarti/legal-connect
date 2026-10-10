@@ -2,6 +2,7 @@ from typing import Any, Optional
 
 import pytest
 
+import app.services.geocoding_service as geocoding_module
 from app.main import app
 from app.routers import ai as ai_router
 from app.tests.helpers import (
@@ -73,27 +74,34 @@ def _override(fake):
 @pytest.fixture
 async def ai_client(client):
     fake = FakeAI()
+    user = await register_user(client, email="ai_user@example.com")
+    client.headers.update(auth_headers(user))
     app.dependency_overrides[ai_router._get_ai] = _override(fake)
     yield client
     app.dependency_overrides.pop(ai_router._get_ai, None)
 
 
-async def test_ai_not_configured_returns_503(client):
+async def test_ai_requires_authentication(client):
+    resp = await client.post("/api/v1/ai/chat", json={"message": "hello"})
+    assert resp.status_code == 401
+
+
+async def test_ai_not_configured_returns_503(ai_client):
     fake = UnconfiguredAI()
     app.dependency_overrides[ai_router._get_ai] = _override(fake)
     try:
-        resp = await client.post("/api/v1/ai/chat", json={"message": "hello"})
+        resp = await ai_client.post("/api/v1/ai/chat", json={"message": "hello"})
         assert resp.status_code == 503
         assert "OPENAI_API_KEY" in resp.json()["detail"]
     finally:
         app.dependency_overrides.pop(ai_router._get_ai, None)
 
 
-async def test_ai_provider_rate_limit_surfaces_clear_message(client):
+async def test_ai_provider_rate_limit_surfaces_clear_message(ai_client):
     fake = RateLimitedAI()
     app.dependency_overrides[ai_router._get_ai] = _override(fake)
     try:
-        resp = await client.post("/api/v1/ai/chat", json={"message": "hello"})
+        resp = await ai_client.post("/api/v1/ai/chat", json={"message": "hello"})
         assert resp.status_code == 503
         assert "429" in resp.json()["detail"]
         assert "quota" in resp.json()["detail"]
@@ -162,6 +170,7 @@ async def test_ai_recommend_lawyers(client):
         profile = await create_lawyer_profile(client, lawyer)
         resp = await client.post(
             "/api/v1/ai/recommend-lawyers",
+            headers=auth_headers(lawyer),
             json={"description": "Help with my divorce case."},
         )
         assert resp.status_code == 200
@@ -189,11 +198,14 @@ async def test_ai_nearby_lawyers(client):
     )
     assert resp.status_code == 200, resp.text
     resp2 = await client.get(
-        "/api/v1/ai/nearby-lawyers", params={"lat": 19.076, "lng": 72.8777, "radius_km": 50}
+        "/api/v1/ai/nearby-lawyers",
+        params={"lat": 19.076, "lng": 72.8777, "radius_km": 50},
+        headers=auth_headers(lawyer),
     )
     assert resp2.status_code == 200
     data = resp2.json()
     assert data["total"] == 1
+    assert data["items"][0]["distance_km"] == 0.0
 
     # A lawyer without coordinates should not appear on the map.
     lawyer2 = await register_lawyer(client, email="nogeo_lawyer@example.com")
@@ -203,6 +215,170 @@ async def test_ai_nearby_lawyers(client):
         json={"bio": "No geo", "years_of_experience": 2, "categories": ["civil"]},
     )
     resp3 = await client.get(
-        "/api/v1/ai/nearby-lawyers", params={"lat": 19.076, "lng": 72.8777}
+        "/api/v1/ai/nearby-lawyers",
+        params={"lat": 19.076, "lng": 72.8777},
+        headers=auth_headers(lawyer),
     )
     assert resp3.json()["total"] == 1
+
+
+async def test_ai_nearby_lawyers_distance_sort_and_filter(client):
+    near = await register_lawyer(client, email="near_sort@example.com")
+    await client.put(
+        "/api/v1/lawyers/me/profile",
+        headers=auth_headers(near),
+        json={
+            "bio": "Nearby",
+            "years_of_experience": 1,
+            "categories": ["family"],
+            "latitude": 19.076,
+            "longitude": 72.8777,
+        },
+    )
+    far = await register_lawyer(client, email="far_sort@example.com")
+    await client.put(
+        "/api/v1/lawyers/me/profile",
+        headers=auth_headers(far),
+        json={
+            "bio": "Far away",
+            "years_of_experience": 1,
+            "categories": ["family"],
+            "latitude": 28.6139,
+            "longitude": 77.2090,
+        },
+    )
+
+    resp = await client.get(
+        "/api/v1/ai/nearby-lawyers",
+        params={"lat": 19.076, "lng": 72.8777, "sort": "distance"},
+        headers=auth_headers(near),
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 2
+    assert data["items"][0]["user_id"] == near["user"]["id"]
+    assert data["items"][0]["distance_km"] == 0.0
+    assert data["items"][1]["distance_km"] > data["items"][0]["distance_km"]
+
+    # A radius filter keeps only lawyers inside the requested distance.
+    filtered = await client.get(
+        "/api/v1/ai/nearby-lawyers",
+        params={"lat": 19.076, "lng": 72.8777, "radius_km": 10},
+        headers=auth_headers(near),
+    )
+    assert filtered.status_code == 200
+    assert filtered.json()["total"] == 1
+    assert filtered.json()["items"][0]["user_id"] == near["user"]["id"]
+
+
+class FakeGeocoder:
+    """Deterministic geocoder so the resolution tests never touch the network."""
+
+    def __init__(self, results: dict[str, Optional[tuple[float, float]]]) -> None:
+        self.results = results
+
+    async def geocode_city(self, city: str) -> Optional[tuple[float, float]]:
+        key = " ".join((city or "").strip().lower().split())
+        return self.results.get(key)
+
+
+async def test_ai_nearby_lawyers_geocodes_city_only_lawyer(client, monkeypatch):
+    """A lawyer with only a city name (e.g. the seeded Pankaj Tripathi/Nagpur
+    case) gets real, persisted coordinates and sorts nearest-first."""
+    monkeypatch.setattr(
+        geocoding_module,
+        "geocoding_service",
+        FakeGeocoder({"nagpur": (21.1458, 79.0882)}),
+    )
+
+    nagpur = await register_lawyer(
+        client, name="Pankaj Tripathi", email="pankaj_tripathi@example.com"
+    )
+    resp = await client.put(
+        "/api/v1/lawyers/me/profile",
+        headers=auth_headers(nagpur),
+        json={
+            "bio": "Civil lawyer based in Nagpur",
+            "years_of_experience": 10,
+            "categories": ["civil"],
+            "city": "Nagpur",
+        },
+    )
+    assert resp.status_code == 200
+
+    far = await register_lawyer(
+        client, name="Delhi Lawyer", email="delhi_far@example.com"
+    )
+    await client.put(
+        "/api/v1/lawyers/me/profile",
+        headers=auth_headers(far),
+        json={
+            "bio": "Corporate lawyer",
+            "years_of_experience": 8,
+            "categories": ["corporate"],
+            "city": "New Delhi",
+            "latitude": 28.6139,
+            "longitude": 77.2090,
+        },
+    )
+
+    resp = await client.get(
+        "/api/v1/ai/nearby-lawyers",
+        params={"lat": 21.1458, "lng": 79.0882, "sort": "distance"},
+        headers=auth_headers(nagpur),
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 2
+    items = data["items"]
+    assert items[0]["user_id"] == nagpur["user"]["id"]
+    assert items[0]["distance_km"] is not None
+    assert items[0]["distance_km"] <= 1.0
+    assert items[1]["user_id"] == far["user"]["id"]
+    assert items[1]["distance_km"] > items[0]["distance_km"]
+
+    # The resolved coordinates were persisted to the lawyer's profile.
+    profile = await client.get(
+        "/api/v1/lawyers/me/profile", headers=auth_headers(nagpur)
+    )
+    assert profile.status_code == 200
+    assert profile.json()["latitude"] == pytest.approx(21.1458)
+    assert profile.json()["longitude"] == pytest.approx(79.0882)
+
+    # Re-running the search (a refresh) keeps the identical nearest-first order.
+    resp2 = await client.get(
+        "/api/v1/ai/nearby-lawyers",
+        params={"lat": 21.1458, "lng": 79.0882, "sort": "distance"},
+        headers=auth_headers(nagpur),
+    )
+    assert resp2.status_code == 200
+    assert [i["user_id"] for i in resp2.json()["items"]] == [
+        i["user_id"] for i in items
+    ]
+
+
+async def test_ai_nearby_lawyers_excludes_city_that_cannot_geocode(client, monkeypatch):
+    """A lawyer whose city cannot be resolved is excluded gracefully."""
+    monkeypatch.setattr(
+        geocoding_module,
+        "geocoding_service",
+        FakeGeocoder({"unknownville": None}),
+    )
+    lawyer = await register_lawyer(client, email="unknownville@example.com")
+    await client.put(
+        "/api/v1/lawyers/me/profile",
+        headers=auth_headers(lawyer),
+        json={
+            "bio": "Practises somewhere unknown",
+            "years_of_experience": 3,
+            "categories": ["family"],
+            "city": "Unknownville",
+        },
+    )
+    resp = await client.get(
+        "/api/v1/ai/nearby-lawyers",
+        params={"lat": 21.1458, "lng": 79.0882, "sort": "distance"},
+        headers=auth_headers(lawyer),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["total"] == 0

@@ -36,6 +36,20 @@ async def _complete_appointment(client: AsyncClient, db, lawyer, user):
     return appt.json()["id"]
 
 
+async def _finished_appointment(client: AsyncClient, db, lawyer, user):
+    """A booked, confirmed and completed appointment; returns its id."""
+    appt_id = await _complete_appointment(client, db, lawyer, user)
+    confirmed = await client.patch(
+        f"/api/v1/appointments/{appt_id}/confirm", headers=auth_headers(lawyer)
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    completed = await client.patch(
+        f"/api/v1/appointments/{appt_id}/complete", headers=auth_headers(lawyer)
+    )
+    assert completed.status_code == 200, completed.text
+    return appt_id
+
+
 async def test_update_own_profile(client: AsyncClient):
     user = await register_user(client)
     resp = await client.patch(
@@ -206,6 +220,123 @@ async def test_list_reviews_for_lawyer(client: AsyncClient, db):
     assert resp.json()["items"][0]["reviewer_name"] == "Test User"
 
 
+async def test_review_completed_appointment_marks_it_reviewed(client: AsyncClient, db):
+    lawyer = await _setup_lawyer(client, db)
+    user = await register_user(client)
+    appt_id = await _finished_appointment(client, db, lawyer, user)
+
+    resp = await client.post(
+        "/api/v1/reviews",
+        headers=auth_headers(user),
+        json={
+            "lawyer_id": lawyer["user"]["id"],
+            "appointment_id": appt_id,
+            "rating": 5,
+            "comment": "Helpful and clear",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["appointment_id"] == appt_id
+
+    detail = await client.get(
+        f"/api/v1/appointments/{appt_id}", headers=auth_headers(user)
+    )
+    assert detail.json()["reviewed"] is True
+
+    listing = await client.get("/api/v1/appointments", headers=auth_headers(user))
+    assert listing.json()["items"][0]["reviewed"] is True
+
+
+async def test_review_requires_completed_appointment(client: AsyncClient, db):
+    lawyer = await _setup_lawyer(client, db)
+    user = await register_user(client)
+    appt_id = await _complete_appointment(client, db, lawyer, user)  # still PENDING
+
+    resp = await client.post(
+        "/api/v1/reviews",
+        headers=auth_headers(user),
+        json={
+            "lawyer_id": lawyer["user"]["id"],
+            "appointment_id": appt_id,
+            "rating": 5,
+            "comment": "Too early",
+        },
+    )
+    assert resp.status_code == 400
+
+
+async def test_review_requires_written_comment(client: AsyncClient, db):
+    lawyer = await _setup_lawyer(client, db)
+    user = await register_user(client)
+    appt_id = await _finished_appointment(client, db, lawyer, user)
+
+    resp = await client.post(
+        "/api/v1/reviews",
+        headers=auth_headers(user),
+        json={"lawyer_id": lawyer["user"]["id"], "appointment_id": appt_id, "rating": 5},
+    )
+    assert resp.status_code == 422
+
+
+async def test_duplicate_review_for_same_appointment_rejected(client: AsyncClient, db):
+    lawyer = await _setup_lawyer(client, db)
+    user = await register_user(client)
+    appt_id = await _finished_appointment(client, db, lawyer, user)
+    payload = {
+        "lawyer_id": lawyer["user"]["id"],
+        "appointment_id": appt_id,
+        "rating": 4,
+        "comment": "Good",
+    }
+    first = await client.post("/api/v1/reviews", headers=auth_headers(user), json=payload)
+    assert first.status_code == 201, first.text
+    second = await client.post("/api/v1/reviews", headers=auth_headers(user), json=payload)
+    assert second.status_code == 409
+
+
+async def test_citizen_can_review_each_completed_appointment(client: AsyncClient, db):
+    lawyer = await _setup_lawyer(client, db)
+    user = await register_user(client)
+    first = await _finished_appointment(client, db, lawyer, user)
+    second = await _finished_appointment(client, db, lawyer, user)
+
+    for appt_id in (first, second):
+        resp = await client.post(
+            "/api/v1/reviews",
+            headers=auth_headers(user),
+            json={
+                "lawyer_id": lawyer["user"]["id"],
+                "appointment_id": appt_id,
+                "rating": 5,
+                "comment": "Great",
+            },
+        )
+        assert resp.status_code == 201, resp.text
+
+
+async def test_reviewing_another_citizens_appointment_forbidden(
+    client: AsyncClient, db
+):
+    lawyer = await _setup_lawyer(client, db)
+    owner = await register_user(client)
+    appt_id = await _finished_appointment(client, db, lawyer, owner)
+    attacker = await register_user(
+        client, name="Attacker", email="attacker@example.com"
+    )
+
+    resp = await client.post(
+        "/api/v1/reviews",
+        headers=auth_headers(attacker),
+        json={
+            "lawyer_id": lawyer["user"]["id"],
+            "appointment_id": appt_id,
+            "rating": 1,
+            "comment": "Not mine",
+        },
+    )
+    assert resp.status_code == 403
+
+
 async def test_create_complaint(client: AsyncClient):
     user = await register_user(client)
     resp = await client.post(
@@ -285,11 +416,11 @@ async def test_complaint_rejects_unknown_appointment(client: AsyncClient):
     assert resp.status_code == 404
 
 
-async def test_citizen_cannot_file_complaint_against_the_lawyer_side(
+async def test_lawyer_can_file_complaint_against_the_client(
     client: AsyncClient, db
 ):
-    # The lawyer on the appointment is the target, never the caller, so the lawyer must
-    # not be able to file a complaint naming themselves.
+    # Both parties of an appointment may report. The target is always derived as the
+    # other side, so a lawyer filing an appointment complaint can never name themselves.
     lawyer = await _setup_lawyer(client, db)
     user = await register_user(client)
     appt_id = await _complete_appointment(client, db, lawyer, user)
@@ -298,12 +429,70 @@ async def test_citizen_cannot_file_complaint_against_the_lawyer_side(
         "/api/v1/complaints",
         headers=auth_headers(lawyer),
         json={
-            "subject": "Not allowed",
-            "description": "A lawyer cannot be a complainant.",
+            "subject": "Client did not attend",
+            "description": "The client never joined the consultation.",
             "related_appointment_id": appt_id,
         },
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["user_id"] == lawyer["user"]["id"]
+    assert body["target_user_id"] == user["user"]["id"]
+    assert body["related_appointment_id"] == appt_id
+
+
+async def test_reported_party_sees_only_their_own_response(
+    client: AsyncClient, db
+):
+    # Lawyer reports the citizen. The admin then replies in both directions; each
+    # party may read only the message addressed to them, and the reported party
+    # never learns who filed the complaint.
+    lawyer = await _setup_lawyer(client, db)
+    user = await register_user(client)
+    appt_id = await _complete_appointment(client, db, lawyer, user)
+
+    created = await client.post(
+        "/api/v1/complaints",
+        headers=auth_headers(lawyer),
+        json={
+            "subject": "Client did not attend",
+            "description": "The client never joined the consultation.",
+            "related_appointment_id": appt_id,
+        },
+    )
+    assert created.status_code == 201, created.text
+    complaint_id = created.json()["id"]
+
+    admin = await register_admin(client, name="Admin", email="admin@example.com")
+    responded = await client.patch(
+        f"/api/v1/admin/complaints/{complaint_id}",
+        headers=auth_headers(admin),
+        json={
+            "status": "RESOLVED",
+            "reporter_response": "A reply only the lawyer should see.",
+            "reported_response": "A reply only the citizen should see.",
+        },
+    )
+    assert responded.status_code == 200, responded.text
+
+    # Reporter (lawyer) sees their own reply and never the citizen's.
+    mine = await client.get("/api/v1/complaints", headers=auth_headers(lawyer))
+    item = mine.json()["items"][0]
+    assert item["reporter_response"] == "A reply only the lawyer should see."
+    assert "reported_response" not in item
+    assert "reported_responded_at" not in item
+
+    # Reported party (citizen) sees only the reply meant for them, anonymised.
+    received = await client.get(
+        "/api/v1/complaints/received", headers=auth_headers(user)
+    )
+    assert received.status_code == 200
+    ritem = received.json()["items"][0]
+    assert ritem["id"] == complaint_id
+    assert ritem["reported_response"] == "A reply only the citizen should see."
+    assert "reporter_response" not in ritem
+    assert "user_id" not in ritem
+    assert "target_user_id" not in ritem
 
 
 async def test_admin_cannot_file_complaint(client: AsyncClient):
@@ -351,17 +540,30 @@ async def test_non_admin_cannot_resolve_complaint(client: AsyncClient, db):
     assert resp.status_code == 403
 
 
-async def test_demo_payment(client: AsyncClient, db):
+async def test_payment_order_requires_gateway(client: AsyncClient, db, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "razorpay_key_id", "")
+    monkeypatch.setattr(settings, "razorpay_key_secret", "")
     lawyer = await _setup_lawyer(client, db)
     user = await register_user(client)
-    await _complete_appointment(client, db, lawyer, user)
-    appts = await client.get("/api/v1/appointments", headers=auth_headers(user))
-    appt_id = appts.json()["items"][0]["id"]
+    appt_id = await _finished_appointment(client, db, lawyer, user)
     resp = await client.post(
-        "/api/v1/payments",
+        "/api/v1/payments/order",
         headers=auth_headers(user),
-        json={"appointment_id": appt_id, "amount": 100.0},
+        json={"appointment_id": appt_id},
     )
-    assert resp.status_code == 201
-    assert resp.json()["status"] == "PAID"
-    assert resp.json()["reference"].startswith("LC-")
+    assert resp.status_code == 503
+    assert "not configured" in resp.json()["detail"].lower()
+
+
+async def test_appointment_payment_lookup_is_null_before_payment(client: AsyncClient, db):
+    lawyer = await _setup_lawyer(client, db)
+    user = await register_user(client)
+    appt_id = await _finished_appointment(client, db, lawyer, user)
+    resp = await client.get(
+        f"/api/v1/payments/appointment/{appt_id}",
+        headers=auth_headers(user),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["payment"] is None

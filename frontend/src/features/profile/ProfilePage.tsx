@@ -183,7 +183,7 @@ export default function ProfilePage() {
         </p>
       )}
 
-      <div className="mt-6 rounded-2xl border border-surface-200 bg-white p-6 dark:border-surface-800 dark:bg-surface-800">
+      <div className="mt-6 rounded-2xl border border-surface-200 bg-white p-4 dark:border-surface-800 dark:bg-surface-800 sm:p-6">
         <h2 className="text-base font-semibold">Profile picture</h2>
         <div className="mt-4 flex items-center gap-4">
           <UserAvatar src={preview ?? savedPictureUrl} name={data?.name} size="xl" />
@@ -246,7 +246,7 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      <div className="mt-6 rounded-2xl border border-surface-200 bg-white p-6 dark:border-surface-800 dark:bg-surface-800">
+      <div className="mt-6 rounded-2xl border border-surface-200 bg-white p-4 dark:border-surface-800 dark:bg-surface-800 sm:p-6">
         {success && (
           <p className="mb-4 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700 dark:bg-green-900/30 dark:text-green-300">
             Profile updated successfully.
@@ -353,10 +353,10 @@ export default function ProfilePage() {
       </div>
 
       {user?.role === 'lawyer' && (
-        <div className="mt-6 flex items-center justify-between rounded-2xl border border-brand-200 bg-brand-50 p-5 dark:border-brand-900 dark:bg-brand-900/20">
-          <div className="flex items-center gap-3">
-            <UserRound className="h-6 w-6 text-brand-600" />
-            <div>
+        <div className="mt-6 flex items-center justify-between gap-3 rounded-2xl border border-brand-200 bg-brand-50 p-5 dark:border-brand-900 dark:bg-brand-900/20">
+          <div className="flex min-w-0 items-center gap-3">
+            <UserRound className="h-6 w-6 shrink-0 text-brand-600" />
+            <div className="min-w-0">
               <p className="font-medium">Lawyer profile</p>
               <p className="text-sm text-surface-500 dark:text-surface-400">
                 Manage your legal profile, categories, rates, and availability.
@@ -365,7 +365,7 @@ export default function ProfilePage() {
           </div>
           <Link
             to="/lawyer/profile"
-            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+            className="shrink-0 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
           >
             Edit
           </Link>

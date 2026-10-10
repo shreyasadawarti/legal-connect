@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Calendar, Check, Loader2, MapPin, Phone, X } from 'lucide-react'
+import { Calendar, Check, Loader2, MapPin, Phone, Video, X } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
 import UserAvatar from '@/components/UserAvatar'
 import {
@@ -9,6 +10,8 @@ import {
   rejectAppointment,
 } from '@/services/appointmentService'
 import type { Appointment } from '@/types/platform'
+
+import VideoCallLink from './VideoCallLink'
 
 const STATUS_COLOR: Record<string, string> = {
   PENDING: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
@@ -25,6 +28,7 @@ function fmtDate(iso: string) {
 
 function Row({ appointment }: { appointment: Appointment }) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   // An appointment's status drives both the list and the earnings split, so both
   // caches are refreshed together. The dashboard reads a child key of
   // ['lawyer-appointments'] and is invalidated by this prefix match.
@@ -68,7 +72,7 @@ function Row({ appointment }: { appointment: Appointment }) {
           {appointment.status}
         </span>
       </div>
-      <div className="mt-2 flex items-center gap-1.5 text-sm text-surface-500 dark:text-surface-400">
+      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm text-surface-500 dark:text-surface-400">
         <Calendar className="h-4 w-4" />
         {fmtDate(appointment.start_time)} – {fmtDate(appointment.end_time)}
       </div>
@@ -97,15 +101,25 @@ function Row({ appointment }: { appointment: Appointment }) {
           </>
         )}
         {appointment.status === 'CONFIRMED' && (
-          <button
-            onClick={() => complete.mutate()}
-            disabled={complete.isPending}
-            className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
-          >
-            {complete.isPending ? 'Marking…' : 'Mark complete'}
-          </button>
+          <>
+            <button
+              onClick={() => navigate(`/video-call/${appointment.id}`)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700"
+            >
+              <Video className="h-4 w-4" /> Video call
+            </button>
+            <button
+              onClick={() => complete.mutate()}
+              disabled={complete.isPending}
+              className="rounded-lg border border-surface-300 px-3 py-1.5 text-sm font-medium hover:bg-surface-100 disabled:opacity-60 dark:border-surface-600 dark:hover:bg-surface-700"
+            >
+              {complete.isPending ? 'Marking…' : 'Mark complete'}
+            </button>
+          </>
         )}
       </div>
+
+      {appointment.status === 'CONFIRMED' && <VideoCallLink appointment={appointment} />}
     </div>
   )
 }

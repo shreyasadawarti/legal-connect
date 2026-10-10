@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 
-from app.config import settings
+from app.config import settings, validate_production_settings
 from app.db.session import (
     check_connection,
     dispose_engine,
@@ -37,6 +37,7 @@ logger = logging.getLogger("legalconnect")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_production_settings()
     logger.info("Starting up %s (env=%s)", settings.app_name, settings.app_env)
     try:
         await ensure_database_exists()

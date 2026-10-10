@@ -47,3 +47,8 @@ class PaymentStatus(str, Enum):
     PAID = "PAID"
     FAILED = "FAILED"
     REFUNDED = "REFUNDED"
+
+
+class RevenueEventType(str, Enum):
+    REGISTRATION = "registration"
+    COMMISSION = "commission"

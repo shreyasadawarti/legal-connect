@@ -1,11 +1,12 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation } from '@tanstack/react-query'
-import { Loader2, Lock, Mail, ShieldCheck } from 'lucide-react'
+import { Loader2, Mail, ShieldCheck } from 'lucide-react'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Link, useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
+import PasswordInput from '@/components/PasswordInput'
 import { useAuthStore } from '@/stores/authStore'
 
 const loginSchema = z.object({
@@ -61,7 +62,7 @@ export default function AdminLoginPage() {
       <form
         noValidate
         onSubmit={handleSubmit(onSubmit)}
-        className="space-y-4 rounded-2xl border border-surface-200 bg-white p-6 shadow-sm dark:border-surface-800 dark:bg-surface-800"
+        className="space-y-4 rounded-2xl border border-surface-200 bg-white p-5 shadow-sm dark:border-surface-800 dark:bg-surface-800 sm:p-6"
       >
         {error && (
           <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
@@ -92,16 +93,11 @@ export default function AdminLoginPage() {
           <label className="mb-1.5 block text-sm font-medium" htmlFor="password">
             Password
           </label>
-          <div className="relative">
-            <Lock className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-surface-400" />
-            <input
-              id="password"
-              type="password"
-              {...register('password')}
-              placeholder="••••••••"
-              className="w-full rounded-lg border border-surface-300 bg-surface-50 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-surface-700 dark:bg-surface-900"
-            />
-          </div>
+          <PasswordInput
+            id="password"
+            {...register('password')}
+            placeholder="••••••••"
+          />
           {errors.password && (
             <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.password.message}</p>
           )}

@@ -35,6 +35,8 @@ class AdminVerificationRequest(BaseModel):
 class AdminComplaintResponsePayload(BaseModel):
     status: ComplaintStatus
     admin_note: Optional[str] = None
+    reporter_response: Optional[str] = None
+    reported_response: Optional[str] = None
 
 
 class AdminAnalyticsResponse(BaseModel):
@@ -45,7 +47,7 @@ class AdminAnalyticsResponse(BaseModel):
     appointments_by_month: list[dict[str, Any]]
     top_categories: list[dict[str, Any]]
     top_lawyers: list[dict[str, Any]]
-    revenue_by_status: dict[str, float]
+    revenue_by_source: dict[str, float]
 
 
 class AdminAppointmentsResponse(BaseModel):

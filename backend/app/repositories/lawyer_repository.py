@@ -310,13 +310,16 @@ class LawyerRepository:
         lat: Optional[float] = None,
         lng: Optional[float] = None,
         verified_only: bool = False,
+        sort: str = "rating",
         limit: int = 100,
     ) -> list[dict[str, Any]]:
-        """Return lawyers that have coordinates (for the map).
+        """Return lawyers with coordinates, optionally annotated and sorted by distance.
 
-        The distance sort then the rating sort is preserved verbatim from the
-        MongoDB version -- Python's sort is stable, so rating ends up the primary
-        key and distance the tie-break, exactly as the map has always rendered.
+        Only rows that carry both coordinates are considered, so a lawyer whose
+        office location is missing can never be shown as "nearby". When `lat`/`lng`
+        are supplied each result gains a `distance_km` field; `sort="distance"`
+        orders nearest-first, while the default preserves the historical
+        rating-first ordering the map has always rendered.
         """
         filters = [
             LawyerProfile.latitude.is_not(None),
@@ -333,16 +336,39 @@ class LawyerRepository:
         docs = [lawyer_profile_to_doc(row) for row in result.scalars()]
 
         if lat is not None and lng is not None:
+            for doc in docs:
+                doc["distance_km"] = round(
+                    _haversine_km(lat, lng, doc["latitude"], doc["longitude"]), 2
+                )
             if radius_km:
-                docs = [
-                    d
-                    for d in docs
-                    if _haversine_km(lat, lng, d["latitude"], d["longitude"])
-                    <= radius_km
-                ]
-            docs.sort(key=lambda d: _haversine_km(lat, lng, d["latitude"], d["longitude"]))
-        docs.sort(key=lambda d: d.get("avg_rating") or 0, reverse=True)
+                docs = [d for d in docs if d["distance_km"] <= radius_km]
+
+        if lat is not None and lng is not None and sort == "distance":
+            docs.sort(key=lambda d: (d["distance_km"], -(d.get("avg_rating") or 0)))
+        else:
+            if lat is not None and lng is not None:
+                docs.sort(key=lambda d: d["distance_km"])
+            docs.sort(key=lambda d: d.get("avg_rating") or 0, reverse=True)
         return docs[:limit]
+
+    async def list_with_city_but_no_coords(self) -> list[dict[str, Any]]:
+        """Profiles that carry a city name but no usable coordinates yet.
+
+        Used by the geocoding service to back-fill real office coordinates for
+        lawyers who only published a city, so they can take part in
+        distance-based "nearby lawyers" search results.
+        """
+        result = await self.db.execute(
+            select(LawyerProfile)
+            .where(
+                LawyerProfile.city.is_not(None),
+                func.trim(LawyerProfile.city) != "",
+                (LawyerProfile.latitude.is_(None) | LawyerProfile.longitude.is_(None)),
+                LawyerProfile.verification_status.not_in(HIDDEN_STATUSES),
+            )
+            .limit(500)
+        )
+        return [lawyer_profile_to_doc(row) for row in result.scalars()]
 
     async def list_by_status(
         self,

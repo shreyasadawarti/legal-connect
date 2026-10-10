@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Clock, Loader2, Plus, Trash2, Upload } from 'lucide-react'
+import { Clock, Loader2, LocateFixed, MapPin, Plus, Trash2, Upload } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 
 import {
@@ -43,6 +43,10 @@ export default function LawyerProfileSettingsPage() {
   const [languages, setLanguages] = useState('')
   const [rate, setRate] = useState('')
   const [city, setCity] = useState('')
+  const [latitude, setLatitude] = useState('')
+  const [longitude, setLongitude] = useState('')
+  const [locating, setLocating] = useState(false)
+  const [locationError, setLocationError] = useState('')
   const [availability, setAvailability] = useState<AvailabilitySlot[]>([])
   const [hasProfile, setHasProfile] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -63,6 +67,8 @@ export default function LawyerProfileSettingsPage() {
     setLanguages((profile.languages ?? []).join(', '))
     setRate(profile.hourly_rate ? String(profile.hourly_rate) : '')
     setCity(profile.city ?? '')
+    setLatitude(profile.latitude != null ? String(profile.latitude) : '')
+    setLongitude(profile.longitude != null ? String(profile.longitude) : '')
     setAvailability(profile.availability ?? [])
   }, [profile])
 
@@ -76,6 +82,8 @@ export default function LawyerProfileSettingsPage() {
         languages: languages.split(',').map((s) => s.trim()).filter(Boolean),
         hourly_rate: rate ? Number(rate) : 0,
         city: city || undefined,
+        latitude: latitude ? Number(latitude) : undefined,
+        longitude: longitude ? Number(longitude) : undefined,
         availability,
       }
       return hasProfile ? updateMyLawyerProfile(payload) : createMyLawyerProfile(payload)
@@ -112,6 +120,27 @@ export default function LawyerProfileSettingsPage() {
     setAvailability((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)))
   }
 
+  const useCurrentLocation = () => {
+    if (!('geolocation' in navigator)) {
+      setLocationError('Location is not available in this browser.')
+      return
+    }
+    setLocating(true)
+    setLocationError('')
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLatitude(String(pos.coords.latitude))
+        setLongitude(String(pos.coords.longitude))
+        setLocating(false)
+      },
+      () => {
+        setLocating(false)
+        setLocationError('Could not determine your location. Enter the coordinates manually.')
+      },
+      { enableHighAccuracy: true, timeout: 10000 },
+    )
+  }
+
   if (isLoading) {
     return (
       <div className="flex justify-center py-16">
@@ -127,7 +156,7 @@ export default function LawyerProfileSettingsPage() {
         Set up your professional profile, practice areas, and availability.
       </p>
 
-      <div className="mt-6 rounded-2xl border border-surface-200 bg-white p-6 dark:border-surface-800 dark:bg-surface-800">
+      <div className="mt-6 rounded-2xl border border-surface-200 bg-white p-4 dark:border-surface-800 dark:bg-surface-800 sm:p-6">
         {saved && (
           <p className="mb-4 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700 dark:bg-green-900/30 dark:text-green-300">
             Profile saved successfully.
@@ -181,6 +210,53 @@ export default function LawyerProfileSettingsPage() {
               onChange={(e) => setCity(e.target.value)}
               className="w-full rounded-lg border border-surface-300 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-brand-500 dark:border-surface-700 dark:bg-surface-900"
             />
+          </div>
+
+          <div>
+            <label className="flex items-center gap-1.5 text-sm font-medium">
+              <MapPin className="h-4 w-4 text-brand-600" /> Office location
+            </label>
+            <div className="mt-2 grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs text-surface-500 dark:text-surface-400">Latitude</label>
+                <input
+                  type="number"
+                  step="any"
+                  min={-90}
+                  max={90}
+                  value={latitude}
+                  onChange={(e) => setLatitude(e.target.value)}
+                  placeholder="e.g. 19.0760"
+                  className="w-full rounded-lg border border-surface-300 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-brand-500 dark:border-surface-700 dark:bg-surface-900"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-surface-500 dark:text-surface-400">Longitude</label>
+                <input
+                  type="number"
+                  step="any"
+                  min={-180}
+                  max={180}
+                  value={longitude}
+                  onChange={(e) => setLongitude(e.target.value)}
+                  placeholder="e.g. 72.8777"
+                  className="w-full rounded-lg border border-surface-300 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-brand-500 dark:border-surface-700 dark:bg-surface-900"
+                />
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={useCurrentLocation}
+              disabled={locating}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-surface-300 px-3 py-1.5 text-sm hover:bg-surface-100 disabled:opacity-60 dark:border-surface-700 dark:hover:bg-surface-700"
+            >
+              {locating ? <Loader2 className="h-4 w-4 animate-spin" /> : <LocateFixed className="h-4 w-4" />}
+              {locating ? 'Locating…' : 'Use my current location'}
+            </button>
+            {locationError && <p className="mt-1 text-xs text-red-600">{locationError}</p>}
+            <p className="mt-1 text-xs text-surface-500 dark:text-surface-400">
+              Citizens can find your office and see how far it is from them.
+            </p>
           </div>
 
           <div>
@@ -243,7 +319,7 @@ export default function LawyerProfileSettingsPage() {
             ) : (
               <div className="space-y-2">
                 {availability.map((slot, i) => (
-                  <div key={i} className="grid grid-cols-[2fr_1fr_1fr_auto] items-center gap-2">
+                  <div key={i} className="grid grid-cols-2 items-center gap-2 sm:grid-cols-[2fr_1fr_1fr_auto]">
                     <select
                       value={slot.day_of_week}
                       onChange={(e) => updateSlot(i, { day_of_week: Number(e.target.value) })}
@@ -289,7 +365,7 @@ export default function LawyerProfileSettingsPage() {
         </form>
       </div>
 
-      <div className="mt-6 rounded-2xl border border-surface-200 bg-white p-6 dark:border-surface-800 dark:bg-surface-800">
+      <div className="mt-6 rounded-2xl border border-surface-200 bg-white p-4 dark:border-surface-800 dark:bg-surface-800 sm:p-6">
         <div className="mb-2 flex items-center gap-2">
           <Upload className="h-4 w-4 text-brand-600" />
           <h2 className="text-lg font-semibold">Documentary proof</h2>

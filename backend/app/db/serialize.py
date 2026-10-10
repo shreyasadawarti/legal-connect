@@ -72,6 +72,9 @@ def user_to_doc(row: User) -> dict[str, Any]:
         "profile_picture_public_id": row.profile_picture_public_id,
         "bio": row.bio,
         "is_email_verified": bool(row.is_email_verified),
+        "auth_version": row.auth_version,
+        "reset_token_hash": row.reset_token_hash,
+        "reset_token_expires_at": row.reset_token_expires_at,
         "status": enum_value(row.status),
         "created_at": row.created_at,
         "updated_at": row.updated_at,
@@ -151,6 +154,8 @@ def message_to_doc(row: Message) -> dict[str, Any]:
         "content": row.content,
         "message_type": row.message_type,
         "is_read": bool(row.is_read),
+        "delivered": row.delivered_at is not None,
+        "delivered_at": row.delivered_at,
         "created_at": row.created_at,
     }
 
@@ -190,6 +195,7 @@ def review_to_doc(row: Review) -> dict[str, Any]:
         "_id": row.id,
         "lawyer_id": row.lawyer_id,
         "reviewer_id": row.reviewer_id,
+        "appointment_id": row.appointment_id,
         "rating": row.rating,
         "comment": row.comment,
         "created_at": row.created_at,
@@ -204,6 +210,8 @@ def payment_to_doc(row: Payment) -> dict[str, Any]:
         "amount": _money(row.amount),
         "status": enum_value(row.status),
         "reference": row.reference,
+        "gateway_order_id": row.gateway_order_id,
+        "gateway_payment_id": row.gateway_payment_id,
         "created_at": row.created_at,
     }
 
@@ -215,8 +223,15 @@ def complaint_to_doc(row: Complaint) -> dict[str, Any]:
         "subject": row.subject,
         "description": row.description,
         "related_appointment_id": row.related_appointment_id,
+        "target_user_id": row.target_user_id,
+        "conversation_id": row.conversation_id,
+        "category": row.category,
         "status": enum_value(row.status),
         "admin_note": row.admin_note,
+        "reporter_response": row.reporter_response,
+        "reporter_responded_at": row.reporter_responded_at,
+        "reported_response": row.reported_response,
+        "reported_responded_at": row.reported_responded_at,
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }

@@ -29,7 +29,8 @@ const sections: { heading: string; body: ReactNode[] }[] = [
   {
     heading: '5. Payments',
     body: [
-      'We do not process payments. No money moves through this platform. Any amount shown to a lawyer is their own estimate of confirmed and completed work, not income paid or received by us.',
+      'Consultation fees are paid through our payment processor, Razorpay, in Indian Rupees. The amount is calculated by the platform from the lawyer’s stated hourly rate and the booked duration and is charged only after an appointment is confirmed. We are not a party to your engagement with the lawyer and do not hold funds beyond processing them on the lawyer’s behalf.',
+      'Payment records and receipts are stored against the appointment. We do not operate an automated refund or dispute process; if you believe a payment is incorrect, raise a complaint and the team will review it case by case.',
     ],
   },
   {
@@ -137,7 +138,7 @@ export default function TermsPage() {
         .
       </p>
 
-      <div className="mx-auto mt-14 max-w-3xl rounded-2xl bg-brand-700 p-8 text-center text-white">
+      <div className="mx-auto mt-14 max-w-3xl rounded-2xl bg-brand-700 p-6 text-center text-white sm:p-8">
         <h2 className="text-2xl font-bold">Questions about these terms?</h2>
         <p className="mt-2 text-brand-100">
           Read the FAQ first — it covers most of what people ask.

@@ -56,6 +56,13 @@ def get_document_storage():
     return cloudinary_service
 
 
+def get_payment_gateway():
+    """Return the active payment gateway (Razorpay)."""
+    from app.services.payment_gateway import payment_gateway
+
+    return payment_gateway
+
+
 def decode_token(token: str, expected_type: str | None = None) -> dict:
     try:
         payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
@@ -104,6 +111,13 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is not active",
+        )
+    token_ver = payload.get("ver", 0)
+    if int(token_ver) != int(user.get("auth_version", 0)):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired. Please log in again.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     return serialize_user(user)
 

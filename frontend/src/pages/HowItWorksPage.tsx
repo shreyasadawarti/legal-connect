@@ -107,7 +107,7 @@ export default function HowItWorksPage() {
         </div>
       </div>
 
-      <div className="mt-16 rounded-2xl bg-brand-700 p-8 text-center text-white">
+      <div className="mt-16 rounded-2xl bg-brand-700 p-6 text-center text-white sm:p-8">
         <h2 className="text-2xl font-bold">Ready to begin?</h2>
         <p className="mt-2 text-brand-100">Create an account, or browse the directory first.</p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-4">

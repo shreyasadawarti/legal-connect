@@ -258,8 +258,8 @@ function AssistantTab() {
   }
 
   return (
-    <div className="flex h-[28rem] flex-col">
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto pr-1">
+    <div className="flex h-[60vh] min-h-[20rem] flex-col sm:h-[28rem]">
+      <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
         {messages.map((m, i) => (
           <div
             key={i}
@@ -311,7 +311,7 @@ function AssistantTab() {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && send()}
           placeholder="Ask a legal question…"
-          className="flex-1 rounded-lg border border-surface-300 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-brand-500 dark:border-surface-700 dark:bg-surface-900"
+          className="min-w-0 flex-1 rounded-lg border border-surface-300 bg-surface-50 px-3 py-2 text-sm outline-none focus:border-brand-500 dark:border-surface-700 dark:bg-surface-900"
         />
         <button
           type="button"
@@ -593,7 +593,7 @@ export default function AiAssistantPage() {
             <AssistantTab />
           </div>
         ) : (
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2">
             <SummarizerCard />
             <PredictorCard />
             <TranslatorCard />

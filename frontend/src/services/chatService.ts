@@ -40,3 +40,11 @@ export async function sendMessageApi(
 export async function markConversationRead(conversationId: string): Promise<void> {
   await api.post(`/messages/${conversationId}/read`)
 }
+
+export async function deleteConversation(conversationId: string): Promise<void> {
+  await api.delete(`/conversations/${conversationId}`)
+}
+
+export async function clearConversation(conversationId: string): Promise<void> {
+  await api.post(`/conversations/${conversationId}/clear`)
+}

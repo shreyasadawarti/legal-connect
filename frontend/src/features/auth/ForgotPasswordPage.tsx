@@ -37,14 +37,14 @@ export default function ForgotPasswordPage() {
       }
     >
       {sent ? (
-        <div className="rounded-2xl border border-surface-200 bg-white p-8 text-center dark:border-surface-800 dark:bg-surface-800">
+        <div className="rounded-2xl border border-surface-200 bg-white p-6 text-center dark:border-surface-800 dark:bg-surface-800 sm:p-8">
           <CheckCircle2 className="mx-auto h-12 w-12 text-green-500" />
           <p className="mt-4 text-sm text-surface-600 dark:text-surface-300">
             If an account exists for that email, a reset link has been sent. Check your inbox.
           </p>
         </div>
       ) : (
-        <form noValidate onSubmit={handleSubmit((d) => mutation.mutate(d))} className="space-y-4 rounded-2xl border border-surface-200 bg-white p-6 shadow-sm dark:border-surface-800 dark:bg-surface-800">
+        <form noValidate onSubmit={handleSubmit((d) => mutation.mutate(d))} className="space-y-4 rounded-2xl border border-surface-200 bg-white p-5 shadow-sm dark:border-surface-800 dark:bg-surface-800 sm:p-6">
           {error && (
             <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">{error}</div>
           )}

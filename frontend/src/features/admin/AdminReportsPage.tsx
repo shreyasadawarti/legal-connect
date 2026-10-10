@@ -58,7 +58,7 @@ export default function AdminReportsPage() {
         ))}
       </div>
 
-      <div className="mt-6 rounded-2xl border border-surface-200 bg-white p-6 dark:border-surface-800 dark:bg-surface-800">
+      <div className="mt-6 rounded-2xl border border-surface-200 bg-white p-4 dark:border-surface-800 dark:bg-surface-800 sm:p-6">
         {isLoading && (
           <div className="flex justify-center py-10">
             <Loader2 className="h-6 w-6 animate-spin text-brand-600" />
@@ -99,8 +99,8 @@ function SummaryTable({ data }: { data: Record<string, unknown> }) {
           key={label}
           className="rounded-xl bg-surface-50 px-4 py-3 dark:bg-surface-900"
         >
-          <dt className="text-xs uppercase text-surface-500 dark:text-surface-400">{label}</dt>
-          <dd className="mt-1 text-lg font-semibold">{String(value)}</dd>
+          <dt className="break-words text-xs uppercase text-surface-500 dark:text-surface-400">{label}</dt>
+          <dd className="mt-1 break-words text-lg font-semibold">{String(value)}</dd>
         </div>
       ))}
       {entries.length === 0 && (

@@ -267,3 +267,12 @@ async def test_user_lookup_not_found(doc_client):
         headers=auth_headers(user),
     )
     assert resp.status_code == 404
+
+
+async def test_user_lookup_requires_authentication(doc_client):
+    client, _ = doc_client
+    resp = await client.get(
+        "/api/v1/users/lookup",
+        params={"email": "someone@example.com"},
+    )
+    assert resp.status_code == 401

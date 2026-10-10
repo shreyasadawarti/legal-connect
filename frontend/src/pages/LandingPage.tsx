@@ -54,7 +54,7 @@ export default function LandingPage() {
         </div>
       </div>
 
-      <div className="mt-16 rounded-2xl bg-brand-700 p-8 text-center text-white">
+      <div className="mt-16 rounded-2xl bg-brand-700 p-6 text-center text-white sm:p-8">
         <h2 className="text-2xl font-bold">Not sure where to start?</h2>
         <p className="mt-2 text-brand-100">
           Our AI assistant can help you understand your legal situation and point you in the right

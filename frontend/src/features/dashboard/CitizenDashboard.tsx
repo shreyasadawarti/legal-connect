@@ -19,12 +19,12 @@ export default function CitizenDashboard() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold">Welcome, {user?.name}</h1>
+      <h1 className="text-2xl font-bold break-words">Welcome, {user?.name}</h1>
       <p className="mt-1 text-sm text-surface-600 dark:text-surface-300">
         Manage your legal consultations and documents.
       </p>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Link to="/lawyers" className="rounded-2xl border border-surface-200 bg-white p-5 hover:shadow-md dark:border-surface-800 dark:bg-surface-800">
           <span className="text-2xl">⚖️</span>
           <h3 className="mt-3 font-semibold">Find Lawyers</h3>
@@ -70,13 +70,13 @@ export default function CitizenDashboard() {
             {data.items.map((a) => (
               <div
                 key={a.id}
-                className="flex items-center justify-between rounded-2xl border border-surface-200 bg-white p-4 dark:border-surface-800 dark:bg-surface-800"
+                className="flex items-center justify-between gap-3 rounded-2xl border border-surface-200 bg-white p-4 dark:border-surface-800 dark:bg-surface-800"
               >
-                <div>
-                  <p className="font-medium">{a.lawyer_name}</p>
-                  <p className="text-sm text-surface-500 dark:text-surface-400">{fmtDate(a.start_time)}</p>
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{a.lawyer_name}</p>
+                  <p className="truncate text-sm text-surface-500 dark:text-surface-400">{fmtDate(a.start_time)}</p>
                 </div>
-                <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                <span className="shrink-0 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
                   {a.status}
                 </span>
               </div>

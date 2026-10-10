@@ -19,9 +19,20 @@
 ## Controls
 
 - **Passwords**: bcrypt (or Argon2) hashing, never stored in plain text.
-- **JWTs**: HS256, short-lived access tokens + refresh tokens.
+- **JWTs**: HS256, short-lived access tokens + refresh tokens; tokens carry a per-user
+  `ver` (auth version) claim compared against `users.auth_version` on every request.
+- **Email verification**: accounts must confirm their email before they can log in.
+  Register issues no tokens; login returns `403` until the address is verified.
+- **Password reset tokens**: 256-bit random (`secrets.token_urlsafe`); only a SHA-256
+  hash is stored, never the raw token; single-use and expire after 30 minutes.
+- **Session invalidation**: completing a password reset or a password change bumps
+  `auth_version`, so every previously issued token is rejected and the user must sign
+  in again (the frontend logs out and redirects to `/login`).
+- **Enumeration resistance**: `forgot-password` and `resend-verification` always return
+  the same generic message regardless of whether the address exists.
 - **CORS**: restricted to configured origins.
-- **Rate limiting**: applied to login and password-reset endpoints.
+- **Rate limiting**: applied to login, register, forgot-password, resend-verification,
+  reset-password and verify-email endpoints.
 - **Input validation**: Pydantic schemas; parameterised SQLAlchemy queries (no string-built SQL).
 - **XSS**: React escapes rendered content; no `dangerouslySetInnerHTML`.
 - **Files**: validate MIME type, extension, and size; safe IDs; private storage.

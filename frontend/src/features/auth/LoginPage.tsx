@@ -1,11 +1,13 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation } from '@tanstack/react-query'
-import { Loader2, Lock, Mail } from 'lucide-react'
+import { Loader2, Mail } from 'lucide-react'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { z } from 'zod'
 
+import PasswordInput from '@/components/PasswordInput'
+import { resendVerification } from '@/services/authService'
 import { useAuthStore } from '@/stores/authStore'
 
 const loginSchema = z.object({
@@ -17,14 +19,21 @@ type LoginForm = z.infer<typeof loginSchema>
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const passwordChanged = searchParams.get('passwordChanged') === '1'
   const login = useAuthStore((s) => s.login)
   const [error, setError] = useState<string | null>(null)
+  const [unverified, setUnverified] = useState(false)
+  const [resent, setResent] = useState(false)
 
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors },
   } = useForm<LoginForm>({ resolver: zodResolver(loginSchema) })
+
+  const emailValue = watch('email')
 
   const mutation = useMutation({
     mutationFn: (data: LoginForm) => login(data.email, data.password),
@@ -33,13 +42,23 @@ export default function LoginPage() {
       else navigate('/dashboard')
     },
     onError: (err: unknown) => {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      const response = (err as { response?: { status?: number; data?: { detail?: string } } })
+        ?.response
+      const detail = response?.data?.detail
       setError(detail ?? 'Login failed. Please try again.')
+      setUnverified(response?.status === 403 && /verif/i.test(detail ?? ''))
     },
+  })
+
+  const resendMutation = useMutation({
+    mutationFn: () => resendVerification(emailValue),
+    onSuccess: () => setResent(true),
   })
 
   const onSubmit = (data: LoginForm) => {
     setError(null)
+    setUnverified(false)
+    setResent(false)
     mutation.mutate(data)
   }
 
@@ -55,11 +74,35 @@ export default function LoginPage() {
       <form
         noValidate
         onSubmit={handleSubmit(onSubmit)}
-        className="space-y-4 rounded-2xl border border-surface-200 bg-white p-6 shadow-sm dark:border-surface-800 dark:bg-surface-800"
+        className="space-y-4 rounded-2xl border border-surface-200 bg-white p-5 shadow-sm dark:border-surface-800 dark:bg-surface-800 sm:p-6"
       >
+        {passwordChanged && !error && (
+          <div className="rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700 dark:bg-green-900/30 dark:text-green-300">
+            Your password was changed. Please sign in again.
+          </div>
+        )}
+
         {error && (
           <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
-            {error}
+            <p>{error}</p>
+            {unverified && (
+              <div className="mt-3">
+                {resent ? (
+                  <p className="text-green-700 dark:text-green-300">
+                    Verification email sent again. Please check your inbox.
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => resendMutation.mutate()}
+                    disabled={resendMutation.isPending || !emailValue}
+                    className="font-semibold underline disabled:opacity-60"
+                  >
+                    Resend verification email
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -86,16 +129,11 @@ export default function LoginPage() {
           <label className="mb-1.5 block text-sm font-medium" htmlFor="password">
             Password
           </label>
-          <div className="relative">
-            <Lock className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-surface-400" />
-            <input
-              id="password"
-              type="password"
-              {...register('password')}
-              placeholder="••••••••"
-              className="w-full rounded-lg border border-surface-300 bg-surface-50 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-surface-700 dark:bg-surface-900"
-            />
-          </div>
+          <PasswordInput
+            id="password"
+            {...register('password')}
+            placeholder="••••••••"
+          />
           {errors.password && (
             <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.password.message}</p>
           )}

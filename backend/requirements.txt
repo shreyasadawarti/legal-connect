@@ -46,3 +46,6 @@ pytest-cov==6.0.0
 
 # Hashing
 argon2-cffi==23.1.0
+
+# ZEGOCLOUD token generation (token04)
+pycryptodome==3.20.0

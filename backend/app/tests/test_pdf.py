@@ -10,6 +10,7 @@ from app.tests.helpers import (
     register_lawyer,
     register_user,
 )
+from app.repositories.payment_repository import PaymentRepository
 
 
 def _slot():
@@ -40,13 +41,13 @@ async def _create_paid_payment(client: AsyncClient, db):
     await activate_lawyer(db, lawyer["user"]["id"])
     user = await register_user(client)
     appt_id = await _complete_appointment(client, db, lawyer, user)
-    resp = await client.post(
-        "/api/v1/payments",
-        headers=auth_headers(user),
-        json={"appointment_id": appt_id, "amount": 150.0},
+    doc = await PaymentRepository(db).create(
+        appointment_id=appt_id,
+        payee_id=user["user"]["id"],
+        amount=150.0,
     )
-    assert resp.status_code == 201, resp.text
-    return user, resp.json()["id"], resp.json()
+    await db.commit()
+    return user, doc["_id"], doc
 
 
 async def test_download_payment_receipt_pdf(client: AsyncClient, db):

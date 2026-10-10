@@ -32,6 +32,16 @@ async def register(client: AsyncClient, *, name: str, email: str, role: str) -> 
         },
     )
     assert resp.status_code == 201, resp.text
+    user = resp.json()["user"]
+    db = await _get_app_db()
+    if db is None:
+        raise RuntimeError("Database is not configured; cannot verify email")
+    await UserRepository(db).mark_email_verified(user["id"])
+    resp = await client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": "StrongPass123"},
+    )
+    assert resp.status_code == 200, resp.text
     return resp.json()
 
 

@@ -74,7 +74,7 @@ const groups: { heading: string; items: Faq[] }[] = [
       {
         question: 'Can I pay through Legal Connect?',
         answer:
-          'No. We do not process payments and no money moves through this platform. Any figures shown to a lawyer are an estimate of their own confirmed and completed work, not income received.',
+          'Yes. Once an appointment is confirmed, you can pay the consultation fee through Razorpay from your appointments page. The amount is calculated by the platform from the lawyer’s stated hourly rate and the booked duration, charged in Indian Rupees, and you receive a receipt. Money is collected by our payment processor on the lawyer’s behalf — the platform does not hold it. We do not run an automated refund or dispute process, so raise a complaint if something is wrong.',
       },
       {
         question: 'Is the AI assistant always available?',
@@ -142,7 +142,7 @@ export default function FaqPage() {
         ))}
       </div>
 
-      <div className="mx-auto mt-14 max-w-3xl rounded-2xl bg-brand-700 p-8 text-center text-white">
+      <div className="mx-auto mt-14 max-w-3xl rounded-2xl bg-brand-700 p-6 text-center text-white sm:p-8">
         <h2 className="text-2xl font-bold">Still have a question?</h2>
         <p className="mt-2 text-brand-100">
           Read how the platform works, or send a request through the directory.

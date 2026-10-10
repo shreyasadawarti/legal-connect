@@ -10,9 +10,11 @@ export class ChatSocket {
   private reconnectDelay = 1000
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private token = ''
+  private onOpenCallback: (() => void) | null = null
 
-  connect(token: string): void {
+  connect(token: string, onOpen?: () => void): void {
     this.token = token
+    this.onOpenCallback = onOpen ?? null
     this.shouldReconnect = true
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
@@ -40,6 +42,9 @@ export class ChatSocket {
 
     this.ws.onopen = () => {
       this.reconnectDelay = 1000
+      const cb = this.onOpenCallback
+      this.onOpenCallback = null
+      if (cb) cb()
     }
 
     this.ws.onmessage = (event: MessageEvent<string>) => {
@@ -102,6 +107,14 @@ export class ChatSocket {
     extra: Record<string, unknown> = {},
   ): void {
     this.send({ type, conversation_id: conversationId, ...extra })
+  }
+
+  startCall(appointmentId: string): void {
+    this.send({ type: 'call-request', appointment_id: appointmentId })
+  }
+
+  endCall(appointmentId: string): void {
+    this.send({ type: 'call-end', appointment_id: appointmentId })
   }
 
   close(): void {

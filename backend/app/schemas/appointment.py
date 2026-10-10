@@ -47,6 +47,7 @@ class AppointmentResponse(BaseModel):
     end_time: datetime
     status: AppointmentStatus = AppointmentStatus.PENDING
     description: Optional[str] = None
+    reviewed: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

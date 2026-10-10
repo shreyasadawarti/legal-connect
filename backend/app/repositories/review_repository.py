@@ -25,10 +25,12 @@ class ReviewRepository:
         reviewer_id: str,
         rating: int,
         comment: Optional[str] = None,
+        appointment_id: Optional[str] = None,
     ) -> dict[str, Any]:
         row = Review(
             lawyer_id=lawyer_id,
             reviewer_id=reviewer_id,
+            appointment_id=appointment_id,
             rating=rating,
             comment=comment,
             created_at=utcnow(),
@@ -36,6 +38,29 @@ class ReviewRepository:
         self.db.add(row)
         await self.db.flush()
         return review_to_doc(row)
+
+    async def find_by_appointment(
+        self, appointment_id: str
+    ) -> Optional[dict[str, Any]]:
+        result = await self.db.execute(
+            select(Review).where(Review.appointment_id == appointment_id)
+        )
+        row = result.scalar_one_or_none()
+        return review_to_doc(row) if row else None
+
+    async def reviewed_appointment_ids(
+        self, reviewer_id: str, appointment_ids: list[str]
+    ) -> set[str]:
+        """Which of the given appointments this reviewer has already reviewed."""
+        if not appointment_ids:
+            return set()
+        result = await self.db.execute(
+            select(Review.appointment_id).where(
+                Review.reviewer_id == reviewer_id,
+                Review.appointment_id.in_(appointment_ids),
+            )
+        )
+        return {row[0] for row in result.all() if row[0] is not None}
 
     async def find_by_id(self, review_id: str) -> Optional[dict[str, Any]]:
         result = await self.db.execute(select(Review).where(Review.id == review_id))

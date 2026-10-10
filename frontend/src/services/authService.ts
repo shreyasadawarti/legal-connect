@@ -19,11 +19,7 @@ export async function logout(): Promise<void> {
 }
 
 export async function register(payload: RegisterRequest): Promise<User> {
-  const { data } = await api.post<{ user: User; access_token: string; refresh_token: string }>(
-    '/auth/register',
-    payload,
-  )
-  storeTokens(data)
+  const { data } = await api.post<{ message: string; user: User }>('/auth/register', payload)
   return data.user
 }
 
@@ -34,6 +30,10 @@ export async function getMe(): Promise<User> {
 
 export async function forgotPassword(email: string): Promise<void> {
   await api.post('/auth/forgot-password', { email })
+}
+
+export async function resendVerification(email: string): Promise<void> {
+  await api.post('/auth/resend-verification', { email })
 }
 
 export async function resetPassword(token: string, password: string): Promise<void> {

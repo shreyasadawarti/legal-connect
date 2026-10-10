@@ -73,7 +73,7 @@ export default function AdminAppointmentsPage() {
 function AdminAppointmentsTable({ data }: { data: Paged<AdminAppointmentItem> }) {
   return (
     <div className="mt-6 overflow-x-auto rounded-2xl border border-surface-200 bg-white dark:border-surface-800 dark:bg-surface-800">
-      <table className="w-full text-left text-sm">
+      <table className="w-full min-w-[640px] text-left text-sm">
         <thead className="border-b border-surface-200 text-xs uppercase text-surface-500 dark:border-surface-700 dark:text-surface-400">
           <tr>
             <th className="px-4 py-3">Client</th>
@@ -91,7 +91,7 @@ function AdminAppointmentsTable({ data }: { data: Paged<AdminAppointmentItem> })
                 {a.lawyer_name || '—'}
               </td>
               <td className="px-4 py-3 capitalize">{a.category.replace('_', ' ')}</td>
-              <td className="px-4 py-3 text-surface-600 dark:text-surface-300">
+              <td className="whitespace-nowrap px-4 py-3 text-surface-600 dark:text-surface-300">
                 {a.start_time ? new Date(a.start_time).toLocaleString() : '—'}
               </td>
               <td className="px-4 py-3">

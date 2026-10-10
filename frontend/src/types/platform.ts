@@ -30,7 +30,7 @@ export interface AvailabilitySlot {
 export interface LawyerProfile {
   user_id: string
   name: string
-  email: string
+  email?: string | null
   phone?: string
   profile_picture_url?: string
   bio: string
@@ -42,6 +42,8 @@ export interface LawyerProfile {
   city?: string
   latitude?: number
   longitude?: number
+  /** Present only on distance-sorted nearby results. */
+  distance_km?: number
   availability: AvailabilitySlot[]
   avg_rating: number
   rating_count: number
@@ -73,6 +75,8 @@ export interface Appointment {
   end_time: string
   status: AppointmentStatus
   description?: string
+  /** True when the current viewer has already reviewed this appointment. */
+  reviewed?: boolean
 }
 
 export interface Notification {
@@ -86,15 +90,46 @@ export interface Notification {
   created_at: string
 }
 
+export interface UserPreferences {
+  notifications: Record<string, boolean>
+  interests: LegalCategory[]
+  privacy: Record<string, boolean>
+}
+
+export type ReportCategory =
+  | 'harassment'
+  | 'spam'
+  | 'fake_profile'
+  | 'abuse'
+  | 'unprofessional'
+  | 'other'
+
 export interface Complaint {
   id: string
   user_id: string
   subject: string
   description: string
   related_appointment_id?: string
+  target_user_id?: string
+  conversation_id?: string
+  category?: string
   status: ComplaintStatus
   admin_note?: string
+  reporter_response?: string
+  reporter_responded_at?: string
   created_at: string
+}
+
+export interface ComplaintAgainstMe {
+  id: string
+  subject: string
+  description: string
+  category?: string
+  status: ComplaintStatus
+  reported_response?: string
+  reported_responded_at?: string
+  created_at: string
+  updated_at?: string
 }
 
 export interface Payment {
@@ -104,6 +139,21 @@ export interface Payment {
   amount: number
   status: PaymentStatus
   reference: string
+  gateway_order_id?: string | null
+  gateway_payment_id?: string | null
+  created_at?: string
+}
+
+export interface PaymentOrder {
+  payment_id: string
+  appointment_id: string
+  order_id: string
+  amount: number
+  amount_paise: number
+  currency: string
+  key_id: string
+  reference: string
+  description: string
 }
 
 export interface Review {
@@ -112,6 +162,7 @@ export interface Review {
   lawyer_name: string
   reviewer_id: string
   reviewer_name: string
+  appointment_id?: string
   rating: number
   comment?: string
   created_at: string
@@ -165,6 +216,9 @@ export interface ChatMessage {
   content: string
   message_type: string
   is_read: boolean
+  /** True once the recipient's client has received it (double grey tick). */
+  delivered?: boolean
+  delivered_at?: string
   created_at?: string
 }
 
@@ -177,15 +231,16 @@ export interface MessageList {
 export type SocketEvent =
   | { type: 'connected'; user_id: string }
   | { type: 'message'; message: ChatMessage; status?: 'sent' | 'delivered' }
+  | { type: 'delivered'; conversation_id: string; user_id: string }
   | { type: 'notice'; conversation_id: string }
   | { type: 'read'; conversation_id: string; reader_id: string }
   | { type: 'typing'; conversation_id: string; user_id: string }
-  | { type: 'call-request'; conversation_id: string; from_user_id: string; to_user_id?: string }
+  | { type: 'call-request'; conversation_id?: string; appointment_id?: string; from_user_id: string; from_name?: string; to_user_id?: string }
   | { type: 'offer'; conversation_id: string; from_user_id: string; sdp?: string }
   | { type: 'answer'; conversation_id: string; from_user_id: string; sdp?: string }
   | { type: 'ice'; conversation_id: string; from_user_id: string; candidate?: string }
-  | { type: 'call-decline'; conversation_id: string; from_user_id: string }
-  | { type: 'call-end'; conversation_id: string; from_user_id: string }
+  | { type: 'call-decline'; conversation_id?: string; appointment_id?: string; from_user_id: string }
+  | { type: 'call-end'; conversation_id?: string; appointment_id?: string; from_user_id: string }
   | { type: 'error'; error: string }
 
 export interface AiChatReply {
@@ -248,10 +303,18 @@ export interface AdminComplaintItem {
   user_id: string
   user_name: string
   user_email: string
+  target_user_id?: string
+  target_user_name?: string
+  target_user_email?: string
+  category?: string
   subject: string
   description: string
   status: ComplaintStatus
   admin_note?: string
+  reporter_response?: string
+  reporter_responded_at?: string
+  reported_response?: string
+  reported_responded_at?: string
   created_at: string
 }
 
@@ -282,7 +345,7 @@ export interface AdminAnalytics {
     rating_count: number
     categories: LegalCategory[]
   }>
-  revenue_by_status: Record<string, number>
+  revenue_by_source: Record<string, number>
 }
 
 export interface AdminAuditItem {

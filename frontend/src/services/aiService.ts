@@ -66,6 +66,7 @@ export async function aiNearbyLawyers(params: {
   lng?: number
   radius_km?: number
   verified_only?: boolean
+  sort?: 'rating' | 'distance'
   limit?: number
 }): Promise<NearbyLawyerMapResponse> {
   const { data } = await api.get<NearbyLawyerMapResponse>('/ai/nearby-lawyers', {

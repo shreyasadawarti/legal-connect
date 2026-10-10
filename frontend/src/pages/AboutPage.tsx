@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Brain, Check, FileText, MapPin, MessageSquare, Scale, Star, X } from 'lucide-react'
+import { Brain, Check, FileText, MapPin, MessageSquare, Scale, Star, Wallet, X } from 'lucide-react'
 
 const built = [
   {
@@ -33,6 +33,11 @@ const built = [
     body: 'A rating can only be submitted for a completed appointment, once per client per lawyer. Ratings are recalculated automatically whenever a review is added or removed.',
   },
   {
+    icon: Wallet,
+    title: 'Consultation payments through Razorpay',
+    body: 'Once an appointment is confirmed, you can pay the consultation fee through Razorpay. The amount is calculated on the server from the lawyer’s stated hourly rate and the booked duration — never from the browser — and every capture is signature-verified before it is recorded.',
+  },
+  {
     icon: Brain,
     title: 'AI assistance, clearly scoped',
     body: 'A legal assistant, a document summariser, a practice-area predictor, a legal-text translator, and a lawyer recommender. When the AI provider is not configured for a deployment, we say so rather than returning an invented answer.',
@@ -45,7 +50,7 @@ const built = [
 ]
 
 const notBuilt = [
-  'There is no online payment processing. No money moves through this platform.',
+  'There is no automated refund or dispute workflow. Payments are collected through Razorpay, but a disagreement over a fee is handled between you, your lawyer, and the team — not by an automated process.',
   'There is no multilingual interface. A preferred language can be saved on your profile, but it does not currently change anything in the app.',
   'There is no 24/7 service and no on-call lawyer.',
   'We do not run background checks on lawyers. Verification confirms a document was submitted and approved, nothing more.',
@@ -129,7 +134,7 @@ export default function AboutPage() {
         would rather be useful and accurate than impressive and wrong.
       </p>
 
-      <div className="mt-16 rounded-2xl bg-brand-700 p-8 text-center text-white">
+      <div className="mt-16 rounded-2xl bg-brand-700 p-6 text-center text-white sm:p-8">
         <h2 className="text-2xl font-bold">See it in action</h2>
         <p className="mt-2 text-brand-100">
           Create an account, or browse the directory without one.

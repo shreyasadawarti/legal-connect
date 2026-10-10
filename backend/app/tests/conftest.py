@@ -49,6 +49,22 @@ def anyio_backend():
     return "asyncio"
 
 
+@pytest.fixture(autouse=True)
+def _disable_email(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force email delivery off so tests never hit a real provider.
+
+    A developer's local `.env` may configure SMTP (or Resend). Without this,
+    `email_service.is_configured` would be true for the whole suite: every
+    `/auth/register` call would attempt a real send to `example.com`, and
+    `test_unconfigured_never_logs_token` would fail. Tests that exercise the
+    configured path set these values themselves, overriding this fixture.
+    """
+    monkeypatch.setattr(settings, "smtp_host", "")
+    monkeypatch.setattr(settings, "smtp_from_email", "")
+    monkeypatch.setattr(settings, "resend_api_key", "")
+
+
+
 # pytest-asyncio runs each test in its own event loop (see pytest.ini's
 # `asyncio_default_fixture_loop_scope = function`), so the engine must be
 # function-scoped too -- a session-scoped engine would be bound to a closed

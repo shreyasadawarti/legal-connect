@@ -22,7 +22,7 @@ secure document sharing, and admin management.
 | Database | MySQL 8 (async SQLAlchemy + Alembic migrations) |
 | Storage | Cloudinary (cloud only) |
 | Real-time | FastAPI WebSockets (chat + notifications + WebRTC signaling) |
-| Video | WebRTC + STUN/TURN |
+| Video | ZEGO Express Web SDK (v3.12, server-signed token04) |
 | Maps | Leaflet + OpenStreetMap |
 | Email | Resend / SMTP |
 | AI | OpenAI-compatible API (provider-independent abstraction) |
@@ -177,6 +177,9 @@ legal-connect/
 > Documents: multipart upload (max 25 MB), list (owned + shared), get, download (signed URL),
 > share/revoke by email lookup (`GET /users/lookup`), owner-only delete, share notifications, audit logs
 > (`audit_logs`). Graceful degradation → 503 when Cloudinary unconfigured.
+> **Download note.** Signed-URL downloads now save the exact original bytes under the original
+> filename/extension (blob fetch + `triggerDownload`) instead of Cloudinary's extension-less
+> `public_id` — see §13.
 
 ### Phase 5: Communication
 
@@ -197,6 +200,9 @@ legal-connect/
 > socket + "New Chat" by email), VideoCallPage (RTCPeerConnection + STUN + graceful media
 > fallback), routes /chat + /chat/video and /lawyer/chat + /lawyer/chat/video,
 > "Message" button on lawyer profile auto-starts a chat via ?start=.
+>
+> **Video note.** Step 5.5's hand-rolled WebRTC `VideoCallPage` was later replaced by the ZEGO
+> Express Web SDK (see §12); the routes stayed the same so nothing else upstream broke.
 
 ### Phase 6: AI Features + Maps
 
@@ -281,7 +287,7 @@ The project is complete only when ALL of these pass:
 - [x] Users can book appointments
 - [x] Lawyers can accept or reject appointments
 - [x] Users and lawyers can chat
-- [x] Authorized users can join video consultations
+- [x] Authorized users can join video consultations (ZEGO Express; server-signed token04 bound to the appointment room — 404/403/400/503 enforced backend-side)
 - [x] AI features fail gracefully when not configured
 - [x] PDF reports can be generated
 - [x] Tests pass
@@ -475,17 +481,266 @@ which there is no prior code to fail against.
 
 ---
 
-*Last updated: AI voice input now streams live (`interimResults = true`) and auto-sends 1.2s after
-a pause, with the result handler fixed to walk every chunk instead of only the first; clicking the mic
-during the delay cancels the pending send. Also in this round: lawyer name search now matches
-`users.name`, earnings split into earned and projected with the stale `['lawyer-earnings']` cache now
-invalidated on status change, lawyer dashboard rebuilt, and `POST /complaints` given the role and
-appointment-ownership checks it previously lacked plus a gated citizen reporting form. No migration.
-Backend pytest 149 passed, frontend vitest 81 passed, build and lint clean. Prior work: profile
-pictures (revision `a7c31e9b4d20`: shared `users` columns, Cloudinary upload/remove routes
-with old-asset cleanup, six fictional demo lawyer portraits, lawyer-only citizen details on
-appointment responses, re-runnable seed script, 138 backend and 33 frontend tests plus 17 live
-checks against real Cloudinary and MySQL), MongoDB to MySQL migration (17 tables, revision
-`d4bf9214682c`, legacy ObjectId-compatible `CHAR(24)` IDs preserved), profile address field
-(`fef6641d722c`), and six real public pages replacing the Under Construction placeholders. Single
-admin `admin@legalconnect.com` via `/admin/login`.*
+## 12. ZEGO Video Consultations
+
+Video calls moved from hand-rolled `RTCPeerConnection`/STUN to the **ZEGO Express Web SDK**
+(`zego-express-engine-webrtc` v3.12). AuthN/A/Z stays server-side: the browser only receives a
+signed token for the exact room it asked for, and the room itself is appointment-scoped.
+
+**Backend**
+- `app/utils/zego_token.py` — token04 generation (AES-CBC + base64, TTL 3600), signed with
+  `ZEGO_APP_SECRET` and **bound to room `lc_<appointment_id>`**, so a token can't be replayed
+  into any other room.
+- `app/config.py` — `zego_app_id` / `zego_app_secret` / `is_zego_configured`; credentials only in
+  gitignored `.env` (no `VITE_`-prefixed secret), `.env.example` documents them.
+- `GET /api/v1/appointments/{id}/video-token` (`appointments.py`) reuses `_get_participant_appointment`:
+  404 unknown ID → **403 non-participant** → **400 not CONFIRMED** → **503 ZEGO unconfigured**.
+- 6 new tests in `backend/app/tests/test_video_token.py`.
+
+**Frontend**
+- `services/videoService.ts` (`getVideoToken`) and `VideoCallPage` rewritten on the ZEGO engine:
+  `loginRoom` → `createZegoStream` → `startPublishingStream` / `startPlayingStream`, roomStream
+  ADD/DELETE handling, roomState lost-connection banner, strict-mode-safe teardown
+  (stopPublishing → destroyStream → logoutRoom → destroyEngine), mic/camera toggles via
+  `muteMicrophone` / `mutePublishStreamVideo`, and 400/403/503/permission error screens.
+- Legacy routes `/chat/video` and `/lawyer/chat/video` kept for backward compatibility; the Call
+  button was removed from **ChatPage** (calls start from appointments instead).
+
+**Personal appointment link**
+- Shared route `/video-call/:appointmentId` added once under DashboardLayout (auth via
+  ProtectedRoute; **authorization is enforced by the backend token endpoint**, not the route), with
+  `?appointment=` query fallback for old links. `useParams` + peer-name lookup via the existing
+  participant-authorized `GET /appointments/{id}` (derives client vs lawyer from `lawyer_id`),
+  keeping `?peerName=` as a fast-path fallback.
+- `VideoCallLink` component + **Copy link** button on CONFIRMED cards only (citizen and lawyer
+  appointment pages); both "Video call" buttons now navigate to the unified `/video-call/{id}`.
+
+**Audio hardening** (root causes of "no sound")
+- Mic-permission pre-flight via `getUserMedia` with distinct messages for denied vs no device.
+- After `createZegoStream`, verify `getAudioTracks()` is non-empty, show the active mic label, and
+  listen for track `mute`/`unmute` (OS-level mic mute warning).
+- Remote playback is explicit (`muted=false`, `volume=1`); the silently-swallowed `play()` rejection
+  now drives a **"Tap to enable sound"** overlay so the browser's autoplay block is recoverable with
+  a user gesture.
+- Mic/cam toggles no-op until the stream exists; Back navigation falls back to the role's
+  appointments page when history is empty (direct-link opens).
+
+### Verification
+
+| Suite | Result |
+|---|---|
+| Backend pytest (real MySQL) | 155 passed |
+| Frontend vitest | 94 passed |
+| `npm run build` (`tsc -b`, strict) | clean |
+| `npm run lint` | clean |
+
+---
+
+## 13. Appointment Calendar & Document Downloads
+
+Two reported issues, both frontend-only — no backend logic, schema, or storage changes.
+
+**Appointment calendar.** `BookAppointmentSection` used a bare `datetime-local` input with no `min`,
+so past bookable slots were selectable (the backend never validated `start_time` against now either).
+It is now an in-app picker overlay: a date input with `min=today` (past dates disabled), and
+hour / minute / AM-PM dropdowns whose options are disabled for today once that hour-minute-meridiem
+combination has passed, plus an explicit **Done** button that validates the combined datetime is
+future, commits the selection, and closes the picker (Cancel discards). The submit button also
+refuses a now-past `start`. An AM/PM follow-up bug — all three selects were controlled by a single
+`pickTime` state that only set when every part was present, so each selection snapped back to the
+placeholder — was fixed by storing the three parts independently; `BookAppointmentSection.test.tsx`
+(3 tests) locks this in.
+
+**Document downloads.** Root cause reproduced live: the signed Cloudinary URL returned the **exact
+original bytes** (verified `200`, correct `%PDF` body, `Access-Control-Allow-Origin: *`) but served
+`Content-Disposition: attachment; filename="<public_id>"`. Because upload passes an explicit empty
+`public_id`, Cloudinary stored a random, **extension-less name** (`file_lgxpyg`), so the browser
+saved a validly-encoded file with no name/extension — opening as "blank". `fl_attachment`
+transformations return `400` empty on this account (rejected as a fix). Resolved by fetching the
+existing signed URL as a blob and saving it with the **original filename/extension from the DB**
+via the existing `triggerDownload(blob, filename)` helper — applied to `DocumentsPage` (citizen and
+lawyer share it) and to the admin's lawyer-proof view in `AdminLawyersPage`; `window.open(url)`
+remains the fallback if the fetch fails. Upload, preview, share, revoke, delete and storage are
+untouched.
+
+### Verification
+
+| Suite | Result |
+|---|---|
+| Backend pytest (real MySQL) | 155 passed (backend untouched) |
+| Frontend vitest | 97 passed (12 files; +3 new picker tests) |
+| `npm run build` (`tsc -b`, strict) | clean |
+| `npm run lint` | clean |
+
+---
+
+## 14. Two-Way Admin Complaint Response
+
+Complaints now carry **two independent admin replies**: one for the person who filed
+the report (`complaints.user_id`) and one for the person reported
+(`complaints.target_user_id`). Each reply is stored with its own timestamp, so a
+recipient knows when the admin answered them.
+
+**Backend**
+- `complaints` gained `reporter_response`, `reporter_responded_at`,
+  `reported_response`, `reported_responded_at` (revision `c7d8e9f0a1b2`, additive
+  and idempotent; all four columns nullable, existing rows untouched).
+- `ComplaintRepository.respond()` writes a direction only when a non-empty value is
+  supplied and stamps that direction's timestamp, so a status-only update never
+  clears an earlier reply.
+- `PATCH /admin/complaints/{id}` (`AdminComplaintResponsePayload`) accepts
+  `reporter_response` + `reported_response`, records an audit log, and notifies
+  **each party separately** (notification `data.direction` is `"reporter"` for the
+  complainant and `"reported"` for the reported party).
+- Recipient isolation: `GET /complaints` strips the reported-side reply, and
+  `GET /complaints/received` returns only the reported-side reply with the
+  reporter's identity (name, email, `user_id`, `target_user_id`) never serialised.
+- Both reporting directions are supported and proven: a citizen reporting a lawyer
+  and a lawyer reporting a citizen (target always derived from an appointment or
+  conversation the caller provably belongs to).
+
+**Frontend**
+- `AdminComplaintsPage` shows both stored replies, prefills the response form, and
+  can save each direction independently (or just flip the status). The Respond
+  form stays available even after a complaint is RESOLVED/REJECTED so an admin can
+  add information or reopen a closed case.
+- `ComplaintsPage` shows the admin reply on "My complaints" (`reporter_response`)
+  and on "Complaints about me" (`reported_response`), both read fresh from the
+  API on every load, so replies and notifications survive refresh and re-login.
+
+### Verification
+
+| Suite | Result |
+|---|---|
+| Backend pytest (real MySQL) | 199 passed (full suite) — includes two-way respond, per-party notifications, status-only preservation, admin access control (403/404) and recipient isolation in both directions |
+| Frontend vitest | 139 passed (22 files) — includes 4 new `AdminComplaintsPage.test.tsx` + 3 new `ComplaintsPage.test.tsx` tests |
+| `npm run build` (`tsc -b`, strict) | clean |
+| `npm run lint` | clean |
+
+## 15. Admin Revenue Ledger & INR Display
+
+Admin Revenue is now defined as **₹10,000 per registered Citizen or Lawyer** plus
+**5× the recorded lawyer earnings** from completed appointments, and every admin
+surface shows it in Indian Rupees (`₹`, `en-IN` digit grouping).
+
+**Backend**
+- New `revenue_events` ledger (revision `3f774b2b69db`): one row per source with a
+  unique `(event_type, reference_id)` key (`event_type` ∈ `registration` /
+  `commission`), so recording is idempotent and revenue can never be double-counted.
+- `RevenueRepository.record_idempotent()` uses MySQL `INSERT ... ON DUPLICATE KEY
+  UPDATE` (no-op) plus the unique key; `total()` and `total_by_source()` read the sum.
+- `POST /auth/register` records a ₹10,000 `registration` event for citizen and lawyer
+  accounts (admins never generate revenue).
+- `PATCH /appointments/{id}/complete` records a `commission` event = 5 ×
+  (`hourly_rate` × appointment hours), skipping zero-rate lawyers.
+- The migration backfills existing data idempotently (`INSERT IGNORE`): every
+  citizen/lawyer becomes a registration event and every COMPLETED appointment with a
+  positive rate becomes a commission event. Additive and safe to re-run.
+- `GET /admin/dashboard.total_revenue`, `GET /admin/analytics.revenue_by_source`
+  (replacing `revenue_by_status`) and the revenue report (`total_revenue` + `by_source`)
+  now read the ledger. Payment rows are no longer treated as revenue.
+
+**Frontend**
+- Admin dashboard Revenue tile renders `₹` with `en-IN` grouping (e.g. `₹2,38,000`).
+- Analytics "Revenue by source (INR)" chart shows `registration` and `commission`
+  as `₹`-formatted, Indian-grouped bars.
+
+### Verification
+
+| Suite | Result |
+|---|---|
+| Backend pytest (real MySQL) | 204 passed (full suite) — includes 5 new `test_revenue.py` cases (registration fee, duplicate-register no-op, commission = 5×rate×hours, idempotent completion, zero-rate skips commission) |
+| Frontend vitest | 141 passed (23 files) — includes 2 new `AdminDashboard.test.tsx` INR-format tests |
+| `npm run build` (`tsc -b`, strict) | clean |
+| `npm run lint` | clean |
+| `alembic heads` | single head `3f774b2b69db`; dev DB backfilled to ₹2,38,000 (₹1,00,000 registration + ₹1,38,000 commission) |
+
+---
+
+## 16. Razorpay Consultation Payments
+
+Real payments replace the old mock. A citizen pays a **server-computed** consultation fee
+(`lawyer.hourly_rate × booked hours`) through Razorpay Checkout; the browser never sends an
+amount, and every capture is HMAC-SHA256 signature-verified before it is recorded.
+
+**Backend**
+- New `payments` gateway columns (revision `b3c4d5e6f7a8`, additive, all nullable):
+  `gateway_order_id`, `gateway_payment_id`, `gateway_signature`.
+- `app/services/payment_gateway.py` — a dependency-free Razorpay client (existing `httpx` +
+  stdlib `hmac`/`hashlib`): order creation over Basic auth, and constant-time verification of
+  both the checkout signature and the `X-Razorpay-Signature` webhook header.
+- `POST /payments/order` — participant + billable-status checks, computes the amount
+  server-side, persists a PENDING payment, creates the order and returns the checkout payload
+  (`key_id`, `amount_paise`, `order_id`, `reference`). `503` when unconfigured (graceful
+  degradation), `502` on a gateway error, `409` when already paid.
+- `POST /payments/verify` — checks the order matches, verifies the signature, marks PAID
+  (idempotent) and notifies the lawyer.
+- `POST /payments/webhook` — unauthenticated but signature-verified against the raw body;
+  handles `payment.captured` / `order.paid` / `payment.failed`, ignores unknown orders.
+- `GET /payments/appointment/{id}` — the caller's latest payment for an appointment.
+- Removed the mock `POST /payments` that wrote PAID from a client-supplied amount;
+  `GET /payments` and `GET /payments/{id}/receipt` are unchanged.
+
+**Frontend**
+- `services/paymentService.ts` (`createPaymentOrder` / `verifyPayment` /
+  `getAppointmentPayment`) and `lib/razorpay.ts` (lazy Checkout loader).
+- `CitizenAppointmentsPage` shows **Pay consultation fee** on confirmed/completed unpaid
+  appointments, a **Paid** badge once captured, and surfaces gateway errors inline.
+- About / FAQ / Terms rewritten: the platform now *does* process payments via Razorpay.
+
+**Config** — `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` / `RAZORPAY_WEBHOOK_SECRET`
+(`.env.example`, `render.yaml`; the webhook URL is
+`{BACKEND_URL}/api/v1/payments/webhook`).
+
+### Verification
+
+| Suite | Result |
+|---|---|
+| Backend pytest (real MySQL) | 229 passed (full suite) — includes new `test_payments.py` (server-side amount, client-supplied amount ignored, non-participant 403, unconfirmed 409, signature verify + idempotency, bad signature 400, webhook capture, bad webhook 400) |
+| Frontend vitest | 154 passed (25 files) — includes 4 new payment-flow tests |
+| `npm run build` (`tsc -b`, strict) | clean |
+| `npm run lint` | clean |
+| `alembic heads` | single head `b3c4d5e6f7a8` |
+
+---
+
+*Last updated: Consultation payments now run end-to-end through Razorpay — the amount is
+computed server-side from the lawyer's hourly rate and booked hours, the citizen completes
+Checkout on confirmed/completed appointments, and both the checkout signature and the webhook
+are HMAC-verified before a payment is marked PAID (`revision b3c4d5e6f7a8` adds three nullable
+gateway columns to `payments`). Backend pytest 229 passed, frontend vitest 154 passed, build and
+lint clean. Earlier: Admin revenue is now a ledger-backed total — ₹10,000 per registered
+citizen/lawyer plus 5× completed-appointment earnings (`revision 3f774b2b69db`, a
+`revenue_events` table with a unique `(event_type, reference_id)` key, idempotent
+`INSERT ... ON DUPLICATE KEY UPDATE` recording and an `INSERT IGNORE` backfill of
+existing users and completed appointments) — surfaced in Indian Rupees on the admin
+dashboard, analytics ("Revenue by source") and revenue report. The dev database
+backfills to ₹2,38,000 (₹1,00,000 registration + ₹1,38,000 commission). Backend pytest
+204 passed, frontend vitest 141 passed, build and lint clean. Earlier: Admin complaints
+now carry two independent replies (one for the reporter,
+one for the reported party), each stored with its own timestamp (`revision c7d8e9f0a1b2`),
+delivered only to its intended recipient (`GET /complaints` vs `GET /complaints/received`),
+with per-party notifications and an audit log; the admin Respond form stays available on
+closed complaints. Backend pytest 199 passed, frontend vitest 139 passed, build and lint
+clean. Earlier: video consultations now run on the ZEGO Express Web SDK with a personal,
+appointment-scoped link (`/video-call/:appointmentId`, Copy link on CONFIRMED cards) and an audio
+pass — mic-permission pre-flight, audio-track/system-mute checks, and an autoplay "enable sound"
+overlay — backed by a token endpoint that enforces participant (403), CONFIRMED (400) and
+configured-ZEGO (503) checks server-side. Also that round: the booking calendar blocks past dates
+and past times today with an explicit Done/AM-PM picker (regression-tested), and document downloads
+save the exact original bytes under the original filename/extension instead of Cloudinary's
+extension-less public_id. No schema changes; backend pytest 155 passed, frontend vitest 97 passed,
+build and lint clean. Prior work: AI voice input now streams live (`interimResults = true`) and
+auto-sends 1.2s after a pause, with the result handler fixed to walk every chunk instead of only the
+first; clicking the mic during the delay cancels the pending send. Also in that round: lawyer name
+search now matches `users.name`, earnings split into earned and projected with the stale
+`['lawyer-earnings']` cache now invalidated on status change, lawyer dashboard rebuilt, and
+`POST /complaints` given the role and appointment-ownership checks it previously lacked plus a gated
+citizen reporting form. No migration. Backend pytest 149 passed, frontend vitest 81 passed, build
+and lint clean. Earlier: profile pictures (revision `a7c31e9b4d20`: shared `users` columns,
+Cloudinary upload/remove routes with old-asset cleanup, six fictional demo lawyer portraits,
+lawyer-only citizen details on appointment responses, re-runnable seed script, 138 backend and 33
+frontend tests plus 17 live checks against real Cloudinary and MySQL), MongoDB to MySQL migration
+(17 tables, revision `d4bf9214682c`, legacy ObjectId-compatible `CHAR(24)` IDs preserved), profile
+address field (`fef6641d722c`), and six real public pages replacing the Under Construction
+placeholders. Single admin `admin@legalconnect.com` via `/admin/login`.*

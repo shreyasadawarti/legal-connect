@@ -1,6 +1,6 @@
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -71,11 +71,14 @@ class ConversationRepository:
         # `last_message_at` is the same intent made explicit: newest activity
         # first. `create()` seeds `last_message_at`, so brand-new chats sort
         # correctly too.
+        # A conversation the user deleted is hidden for them only -- a NULL
+        # `hidden_at` on their participant row keeps it listed.
         is_participant = (
             select(ConversationParticipant.conversation_id)
             .where(
                 ConversationParticipant.conversation_id == Conversation.id,
                 ConversationParticipant.user_id == user_id,
+                ConversationParticipant.hidden_at.is_(None),
             )
             .exists()
         )
@@ -175,4 +178,54 @@ class ConversationRepository:
             return
         row.last_message = last_message
         row.last_message_at = utcnow()
+        await self.db.flush()
+
+    async def get_participant_state(
+        self, conversation_id: str, user_id: str
+    ) -> Optional[dict[str, Any]]:
+        """Per-user view state for a conversation, or None if not a participant."""
+        result = await self.db.execute(
+            select(ConversationParticipant).where(
+                ConversationParticipant.conversation_id == conversation_id,
+                ConversationParticipant.user_id == user_id,
+            )
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        return {"hidden_at": row.hidden_at, "cleared_at": row.cleared_at}
+
+    async def set_hidden(
+        self, conversation_id: str, user_id: str, hidden: bool
+    ) -> None:
+        """Hide (delete) or restore a conversation for one participant only."""
+        await self.db.execute(
+            update(ConversationParticipant)
+            .where(
+                ConversationParticipant.conversation_id == conversation_id,
+                ConversationParticipant.user_id == user_id,
+            )
+            .values(hidden_at=utcnow() if hidden else None)
+        )
+        await self.db.flush()
+
+    async def set_cleared(self, conversation_id: str, user_id: str) -> None:
+        """Hide the message history up to now for one participant only."""
+        await self.db.execute(
+            update(ConversationParticipant)
+            .where(
+                ConversationParticipant.conversation_id == conversation_id,
+                ConversationParticipant.user_id == user_id,
+            )
+            .values(cleared_at=utcnow())
+        )
+        await self.db.flush()
+
+    async def clear_hidden_for_all(self, conversation_id: str) -> None:
+        """Bring a deleted conversation back for everyone when it gets activity."""
+        await self.db.execute(
+            update(ConversationParticipant)
+            .where(ConversationParticipant.conversation_id == conversation_id)
+            .values(hidden_at=None)
+        )
         await self.db.flush()

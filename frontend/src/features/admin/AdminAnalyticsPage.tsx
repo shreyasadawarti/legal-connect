@@ -51,9 +51,9 @@ export default function AdminAnalyticsPage() {
     name,
     count,
   }))
-  const revenueByStatus = Object.entries(data.revenue_by_status).map(([, count]) => ({
-    name: `$${count}`,
-    count,
+  const revenueBySource = Object.entries(data.revenue_by_source).map(([source, amount]) => ({
+    name: `${source} · ₹${Number(amount).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
+    count: amount,
   }))
 
   return (
@@ -63,7 +63,7 @@ export default function AdminAnalyticsPage() {
         Platform usage and revenue breakdown.
       </p>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+      <div className="mt-6 grid gap-4 md:grid-cols-2">
         <ChartCard title="Users by role">
           <PieChartWrap data={usersByRole} />
         </ChartCard>
@@ -73,8 +73,8 @@ export default function AdminAnalyticsPage() {
         <ChartCard title="Complaints by status">
           <BarChartWrap data={complaintsByStatus} color="#f59e0b" />
         </ChartCard>
-        <ChartCard title="Revenue by status (USD)">
-          <BarChartWrap data={revenueByStatus} color="#10b981" />
+        <ChartCard title="Revenue by source (INR)">
+          <BarChartWrap data={revenueBySource} color="#10b981" />
         </ChartCard>
         <ChartCard title="Appointments by month">
           <BarChartWrap data={data.appointments_by_month.map((m) => ({ name: m.month, count: m.count }))} color="#4f46e5" />
@@ -114,6 +114,10 @@ function PieChartWrap({ data }: { data: Array<{ name: string; count: number }> }
   )
 }
 
+function shortenLabel(value: string) {
+  return value.length > 14 ? `${value.slice(0, 13)}…` : value
+}
+
 function BarChartWrap({
   data,
   color,
@@ -125,7 +129,7 @@ function BarChartWrap({
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#d4d4d8" />
-        <XAxis dataKey="name" fontSize={11} />
+        <XAxis dataKey="name" fontSize={11} tickFormatter={shortenLabel} />
         <YAxis fontSize={11} />
         <Tooltip />
         <Bar dataKey="count" fill={color} radius={[4, 4, 0, 0]} />
@@ -150,14 +154,14 @@ function TopLawyers({
   return (
     <ul className="space-y-3">
       {lawyers.map((l) => (
-        <li key={l.name} className="flex items-center justify-between rounded-lg bg-surface-50 px-3 py-2 dark:bg-surface-900">
-          <div>
-            <p className="text-sm font-medium">{l.name}</p>
-            <p className="text-xs text-surface-500 dark:text-surface-400">
+        <li key={l.name} className="flex items-center justify-between gap-3 rounded-lg bg-surface-50 px-3 py-2 dark:bg-surface-900">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">{l.name}</p>
+            <p className="truncate text-xs text-surface-500 dark:text-surface-400">
               {l.categories.map((c) => c.replace('_', ' ')).join(', ')}
             </p>
           </div>
-          <span className="text-sm font-medium">
+          <span className="shrink-0 whitespace-nowrap text-sm font-medium">
             {l.avg_rating.toFixed(1)} ★ ({l.rating_count})
           </span>
         </li>

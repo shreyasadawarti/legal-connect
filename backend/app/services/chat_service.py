@@ -51,6 +51,8 @@ class ChatService:
         )
         preview = content if len(content) <= 120 else content[:117] + "..."
         await self._conversations.touch(conversation_id, preview)
+        # New activity revives a conversation any participant had deleted.
+        await self._conversations.clear_hidden_for_all(conversation_id)
         return message
 
     async def merge_duplicate_conversations(self) -> int:

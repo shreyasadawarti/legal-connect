@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
+from secrets import token_urlsafe
 from typing import Optional
 from uuid import uuid4
 
@@ -15,6 +17,8 @@ pwd_context = CryptContext(
 
 REFRESH_TOKEN_EXPIRY_KEY = "_legalconnect_refresh_ttl"
 
+RESET_TOKEN_TTL_MINUTES = 30
+
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
@@ -27,12 +31,13 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
-def create_access_token(subject: str, role: str) -> str:
+def create_access_token(subject: str, role: str, ver: int = 0) -> str:
     now = datetime.now(timezone.utc)
     expire = now + timedelta(minutes=settings.jwt_access_token_expire_minutes)
     payload = {
         "sub": subject,
         "role": role,
+        "ver": ver,
         "type": "access",
         "iat": now,
         "exp": expire,
@@ -40,12 +45,13 @@ def create_access_token(subject: str, role: str) -> str:
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def create_refresh_token(subject: str, role: str) -> str:
+def create_refresh_token(subject: str, role: str, ver: int = 0) -> str:
     now = datetime.now(timezone.utc)
     expire = now + timedelta(days=settings.jwt_refresh_token_expire_days)
     payload = {
         "sub": subject,
         "role": role,
+        "ver": ver,
         "type": "refresh",
         "jti": uuid4().hex,
         "iat": now,
@@ -64,11 +70,15 @@ def decode_token(token: str) -> dict:
         ) from exc
 
 
-def generate_reset_token(email: str) -> str:
-    now = datetime.now(timezone.utc)
-    expire = now + timedelta(minutes=30)
-    payload = {"sub": email, "type": "reset", "purpose": "password", "iat": now, "exp": expire}
-    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+def generate_reset_token() -> str:
+    """Return a random, single-use password-reset token (base64url, ~43 chars)."""
+    return token_urlsafe(32)
+
+
+def hash_reset_token(token: str) -> str:
+    """Return the SHA-256 hex digest stored for a reset token. The token itself
+    is only ever emailed to the account owner, never persisted or logged."""
+    return sha256(token.encode("utf-8")).hexdigest()
 
 
 def generate_verify_email_token(email: str) -> str:

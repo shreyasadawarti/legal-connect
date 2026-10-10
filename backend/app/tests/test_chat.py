@@ -321,3 +321,82 @@ async def test_merge_duplicate_conversations_preserves_messages(client, db):
         text("ALTER TABLE conversations ADD UNIQUE INDEX uq_conversations_pair_key (pair_key)")
     )
     await db.commit()
+
+
+async def test_message_delivery_and_read_receipts(chat_users):
+    client, alice, bob = chat_users
+    conv = await client.post(
+        "/api/v1/conversations",
+        headers=auth_headers(alice),
+        json={"other_user_id": bob["user"]["id"]},
+    )
+    conv_id = conv.json()["id"]
+
+    sent = await client.post(
+        f"/api/v1/messages/{conv_id}",
+        headers=auth_headers(alice),
+        json={"content": "Receipt check"},
+    )
+    assert sent.status_code == 200
+    msg = sent.json()
+    assert msg["delivered"] is False
+    assert msg["is_read"] is False
+
+    # The sender fetching her own list must not self-mark her message delivered.
+    alice_view = await client.get(
+        f"/api/v1/messages/{conv_id}", headers=auth_headers(alice)
+    )
+    assert alice_view.json()["items"][0]["delivered"] is False
+
+    # Bob fetching the conversation makes the message available to him: delivered.
+    bob_view = await client.get(
+        f"/api/v1/messages/{conv_id}", headers=auth_headers(bob)
+    )
+    item = bob_view.json()["items"][0]
+    assert item["delivered"] is True
+    assert item["is_read"] is False
+
+    # Delivered persists: Alice re-fetches and still sees the double-grey state.
+    alice_view2 = await client.get(
+        f"/api/v1/messages/{conv_id}", headers=auth_headers(alice)
+    )
+    item = alice_view2.json()["items"][0]
+    assert item["delivered"] is True
+    assert item["is_read"] is False
+
+    # Reading implies delivered and persists to the sender's view.
+    await client.post(
+        f"/api/v1/messages/{conv_id}/read",
+        headers=auth_headers(bob),
+    )
+    alice_view3 = await client.get(
+        f"/api/v1/messages/{conv_id}", headers=auth_headers(alice)
+    )
+    item = alice_view3.json()["items"][0]
+    assert item["is_read"] is True
+    assert item["delivered"] is True
+
+
+async def test_read_marks_delivered_without_prior_fetch(chat_users):
+    client, alice, bob = chat_users
+    conv = await client.post(
+        "/api/v1/conversations",
+        headers=auth_headers(alice),
+        json={"other_user_id": bob["user"]["id"]},
+    )
+    conv_id = conv.json()["id"]
+    await client.post(
+        f"/api/v1/messages/{conv_id}",
+        headers=auth_headers(alice),
+        json={"content": "Direct read"},
+    )
+    await client.post(
+        f"/api/v1/messages/{conv_id}/read",
+        headers=auth_headers(bob),
+    )
+    alice_view = await client.get(
+        f"/api/v1/messages/{conv_id}", headers=auth_headers(alice)
+    )
+    item = alice_view.json()["items"][0]
+    assert item["is_read"] is True
+    assert item["delivered"] is True

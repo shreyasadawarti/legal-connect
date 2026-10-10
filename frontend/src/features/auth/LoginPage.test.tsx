@@ -12,18 +12,19 @@ vi.mock('@/services/authService', async (importOriginal) => {
   return {
     ...actual,
     login: vi.fn(),
+    resendVerification: vi.fn(),
   }
 })
 
-import { login } from '@/services/authService'
+import { login, resendVerification } from '@/services/authService'
 
-function renderLogin() {
+function renderLogin(initialEntries: string[] = ['/login']) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={initialEntries}>
         <LoginPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -81,8 +82,7 @@ describe('LoginPage', () => {
     await waitFor(() => expect(login).toHaveBeenCalled())
   })
 
-  it('shows an error message when login fails', async () => {
-    const user = userEvent.setup()
+  it('shows an error message when login fails', async () => {    const user = userEvent.setup()
     vi.mocked(login).mockRejectedValue({
       response: { data: { detail: 'Invalid email or password' } },
     })
@@ -91,5 +91,30 @@ describe('LoginPage', () => {
     await user.type(screen.getByLabelText('Password'), 'wrongpass123')
     await user.click(screen.getByRole('button', { name: /sign in/i }))
     expect(await screen.findByText(/Invalid email or password/i)).toBeInTheDocument()
+  })
+
+  it('offers a resend action when the account email is not verified', async () => {
+    const user = userEvent.setup()
+    vi.mocked(login).mockRejectedValue({
+      response: {
+        status: 403,
+        data: { detail: 'Email not verified. Check your inbox for the verification link.' },
+      },
+    })
+    vi.mocked(resendVerification).mockResolvedValue(undefined)
+    renderLogin()
+    await user.type(screen.getByLabelText('Email'), 'test@example.com')
+    await user.type(screen.getByLabelText('Password'), 'password123')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    const resend = await screen.findByRole('button', { name: /resend verification email/i })
+    await user.click(resend)
+    expect(resendVerification).toHaveBeenCalledWith('test@example.com')
+    expect(await screen.findByText(/sent again/i)).toBeInTheDocument()
+  })
+
+  it('shows a confirmation banner after a password change', () => {
+    renderLogin(['/login?passwordChanged=1'])
+    expect(screen.getByText(/password was changed/i)).toBeInTheDocument()
   })
 })

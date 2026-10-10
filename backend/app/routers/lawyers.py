@@ -15,6 +15,7 @@ from app.schemas.lawyer import (
     LawyerProfileListResponse,
     LawyerProfileResponse,
     LawyerProfileUpdate,
+    redact_lawyer_contact,
     serialize_lawyer_profile,
 )
 
@@ -81,7 +82,7 @@ async def search_lawyers(
     users = await UserRepository(db).find_by_ids(user_ids)
     user_map = {str(u["_id"]): u for u in users}
     items = [
-        serialize_lawyer_profile(p, user_map.get(p["user_id"]))
+        redact_lawyer_contact(serialize_lawyer_profile(p, user_map.get(p["user_id"])))
         for p in result["items"]
     ]
     _strip_verification_document(items)
@@ -98,7 +99,7 @@ async def get_lawyer_profile(
     user_id: str, db: AsyncSession = Depends(require_db)
 ):
     profile, user = await _get_lawyer_profile_for_user(db, user_id)
-    data = serialize_lawyer_profile(profile, user)
+    data = redact_lawyer_contact(serialize_lawyer_profile(profile, user))
     _strip_verification_document([data])
     return LawyerProfileResponse.model_validate(data)
 

@@ -106,15 +106,13 @@ async def test_dashboard(client: AsyncClient, db):
     admin = await _admin(client)
     lawyer = await register_lawyer(client)
     await create_lawyer_profile(client, lawyer)
-    await _seed_payment(db, user_id=admin["user"]["id"], amount=250.0)
-    await _seed_payment(db, user_id=admin["user"]["id"], amount=50.0, status="PENDING")
     resp = await client.get("/api/v1/admin/dashboard", headers=auth_headers(admin))
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["total_users"] >= 3
     assert body["total_lawyers"] == 1
     assert body["pending_verifications"] == 1
-    assert body["total_revenue"] == 250.0
+    assert body["total_revenue"] == 20000.0
 
 
 async def test_list_users(client: AsyncClient):
@@ -295,18 +293,196 @@ async def test_respond_complaint(client: AsyncClient, db):
 
 
 async def test_list_complaints(client: AsyncClient):
-    user = await register_user(client)
+    reporter = await register_user(
+        client, name="Reporter", email="reporter@example.com"
+    )
+    reported = await register_user(
+        client, name="Reported User", email="reported@example.com"
+    )
     await client.post(
         "/api/v1/complaints",
-        headers=auth_headers(user),
-        json={"subject": "Issue", "description": "Something went wrong"},
+        headers=auth_headers(reporter),
+        json={
+            "subject": "Issue",
+            "description": "Something went wrong",
+            "target_user_id": reported["user"]["id"],
+            "category": "harassment",
+        },
     )
     admin = await _admin(client)
     resp = await client.get("/api/v1/admin/complaints", headers=auth_headers(admin))
     assert resp.status_code == 200
     body = resp.json()
     assert body["total"] == 1
-    assert body["items"][0]["user_name"] == "Test User"
+    item = body["items"][0]
+    assert item["user_name"] == "Reporter"
+    assert item["target_user_name"] == "Reported User"
+    assert item["target_user_email"] == "reported@example.com"
+    assert item["category"] == "harassment"
+
+
+async def _file_complaint_with_target(
+    client: AsyncClient, reporter: dict[str, Any], reported: dict[str, Any]
+) -> str:
+    resp = await client.post(
+        "/api/v1/complaints",
+        headers=auth_headers(reporter),
+        json={
+            "subject": "Issue",
+            "description": "Something went wrong",
+            "target_user_id": reported["user"]["id"],
+            "category": "harassment",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+async def test_admin_responds_separately_to_both_parties(client: AsyncClient):
+    reporter = await register_user(
+        client, name="Reporter", email="reporter@example.com"
+    )
+    reported = await register_user(
+        client, name="Reported User", email="reported@example.com"
+    )
+    complaint_id = await _file_complaint_with_target(client, reporter, reported)
+    admin = await _admin(client)
+
+    resp = await client.patch(
+        f"/api/v1/admin/complaints/{complaint_id}",
+        headers=auth_headers(admin),
+        json={
+            "status": "IN_PROGRESS",
+            "reporter_response": "Thanks, we are investigating.",
+            "reported_response": "We are looking into this for you.",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "IN_PROGRESS"
+    assert body["reporter_response"] == "Thanks, we are investigating."
+    assert body["reported_response"] == "We are looking into this for you."
+    assert body["reporter_responded_at"] is not None
+    assert body["reported_responded_at"] is not None
+
+    listing = await client.get(
+        "/api/v1/admin/complaints", headers=auth_headers(admin)
+    )
+    item = listing.json()["items"][0]
+    assert item["reporter_response"] == "Thanks, we are investigating."
+    assert item["reported_response"] == "We are looking into this for you."
+
+
+async def test_response_notifications_go_to_both_parties(client: AsyncClient):
+    reporter = await register_user(
+        client, name="Reporter", email="reporter@example.com"
+    )
+    reported = await register_user(
+        client, name="Reported User", email="reported@example.com"
+    )
+    complaint_id = await _file_complaint_with_target(client, reporter, reported)
+    admin = await _admin(client)
+
+    resp = await client.patch(
+        f"/api/v1/admin/complaints/{complaint_id}",
+        headers=auth_headers(admin),
+        json={
+            "status": "RESOLVED",
+            "reporter_response": "Resolved for you.",
+            "reported_response": "Noted for you.",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    reporter_ns = (await client.get("/api/v1/notifications", headers=auth_headers(reporter))).json()["items"]
+    target_ns = (await client.get("/api/v1/notifications", headers=auth_headers(reported))).json()["items"]
+
+    reporter_dirs = [
+        n["data"].get("direction")
+        for n in reporter_ns
+        if n["data"] and n["data"].get("complaint_id") == complaint_id
+    ]
+    target_dirs = [
+        n["data"].get("direction")
+        for n in target_ns
+        if n["data"] and n["data"].get("complaint_id") == complaint_id
+    ]
+    assert "reporter" in reporter_dirs
+    assert "reported" not in reporter_dirs
+    assert "reported" in target_dirs
+    assert "reporter" not in target_dirs
+
+
+async def test_status_only_update_preserves_prior_responses(client: AsyncClient):
+    reporter = await register_user(
+        client, name="Reporter", email="reporter@example.com"
+    )
+    reported = await register_user(
+        client, name="Reported User", email="reported@example.com"
+    )
+    complaint_id = await _file_complaint_with_target(client, reporter, reported)
+    admin = await _admin(client)
+
+    first = await client.patch(
+        f"/api/v1/admin/complaints/{complaint_id}",
+        headers=auth_headers(admin),
+        json={
+            "status": "IN_PROGRESS",
+            "reporter_response": "Investigating.",
+            "reported_response": "Under review.",
+        },
+    )
+    assert first.status_code == 200, first.text
+
+    listing = await client.get(
+        "/api/v1/admin/complaints", headers=auth_headers(admin)
+    )
+    before = listing.json()["items"][0]
+
+    moved = await client.patch(
+        f"/api/v1/admin/complaints/{complaint_id}",
+        headers=auth_headers(admin),
+        json={"status": "RESOLVED"},
+    )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["status"] == "RESOLVED"
+
+    listing = await client.get(
+        "/api/v1/admin/complaints", headers=auth_headers(admin)
+    )
+    after = listing.json()["items"][0]
+    assert after["reporter_response"] == before["reporter_response"]
+    assert after["reported_response"] == before["reported_response"]
+    assert after["reporter_responded_at"] == before["reporter_responded_at"]
+    assert after["reported_responded_at"] == before["reported_responded_at"]
+
+
+async def test_non_admin_cannot_respond_via_admin_endpoint(client: AsyncClient):
+    reporter = await register_user(
+        client, name="Reporter", email="reporter@example.com"
+    )
+    reported = await register_user(
+        client, name="Reported User", email="reported@example.com"
+    )
+    complaint_id = await _file_complaint_with_target(client, reporter, reported)
+    other = await register_user(client, name="Other", email="other@example.com")
+
+    resp = await client.patch(
+        f"/api/v1/admin/complaints/{complaint_id}",
+        headers=auth_headers(other),
+        json={"status": "RESOLVED", "reporter_response": "Unauthorized"},
+    )
+    assert resp.status_code == 403
+
+
+async def test_respond_unknown_complaint(client: AsyncClient):
+    admin = await _admin(client)
+    resp = await client.patch(
+        f"/api/v1/admin/complaints/000000000000000000000000",
+        headers=auth_headers(admin),
+        json={"status": "RESOLVED"},
+    )
+    assert resp.status_code == 404
 
 
 async def test_analytics(client: AsyncClient, db):
@@ -315,13 +491,12 @@ async def test_analytics(client: AsyncClient, db):
     lawyer = await register_lawyer(client)
     await create_lawyer_profile(client, lawyer)
     await activate_lawyer(db, lawyer["user"]["id"])
-    await _seed_payment(db, user_id=admin["user"]["id"], amount=100.0)
     resp = await client.get("/api/v1/admin/analytics", headers=auth_headers(admin))
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["users_by_role"]["admin"] >= 1
     assert body["lawyers_by_status"]["ACTIVE"] == 1
-    assert body["revenue_by_status"]["PAID"] == 100.0
+    assert body["revenue_by_source"] == {"registration": 20000.0}
 
 
 async def test_audit_logs(client: AsyncClient):
@@ -346,7 +521,6 @@ async def test_audit_logs(client: AsyncClient):
 async def test_reports(client: AsyncClient, db):
     await register_user(client)
     admin = await _admin(client)
-    await _seed_payment(db, user_id=admin["user"]["id"], amount=99.0)
     resp = await client.get(
         "/api/v1/admin/reports/users", headers=auth_headers(admin)
     )
@@ -354,7 +528,9 @@ async def test_reports(client: AsyncClient, db):
     assert resp.json()["report_type"] == "users"
     rev = await client.get("/api/v1/admin/reports/revenue", headers=auth_headers(admin))
     assert rev.status_code == 200
-    assert rev.json()["summary"]["total_paid"] == 99.0
+    summary = rev.json()["summary"]
+    assert summary["total_revenue"] == 10000.0
+    assert summary["by_source"] == {"registration": 10000.0}
 
 
 async def test_unknown_report(client: AsyncClient):

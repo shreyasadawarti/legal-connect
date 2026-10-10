@@ -1,14 +1,32 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from app.models.platform import PaymentStatus
 
 
-class PaymentCreate(BaseModel):
+class PaymentOrderRequest(BaseModel):
     appointment_id: str
-    amount: float = Field(gt=0)
+
+
+class PaymentOrderResponse(BaseModel):
+    payment_id: str
+    appointment_id: str
+    order_id: str
+    amount: float
+    amount_paise: int
+    currency: str = "INR"
+    key_id: str
+    reference: str
+    description: str = "Legal consultation"
+
+
+class PaymentVerifyRequest(BaseModel):
+    payment_id: str
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
 
 
 class PaymentResponse(BaseModel):
@@ -18,9 +36,12 @@ class PaymentResponse(BaseModel):
     amount: float
     status: PaymentStatus = PaymentStatus.PENDING
     reference: str = ""
+    gateway_order_id: Optional[str] = None
+    gateway_payment_id: Optional[str] = None
     created_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
 
 
 def serialize_payment(doc: dict[str, Any]) -> dict[str, Any]:

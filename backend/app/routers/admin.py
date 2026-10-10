@@ -5,7 +5,7 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_document_storage, require_db, require_roles
-from app.models.platform import AppointmentStatus, ComplaintStatus, PaymentStatus
+from app.models.platform import AppointmentStatus, ComplaintStatus
 from app.models.user import LawyerStatus, UserRole, UserStatus
 from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.audit_log_repository import AuditLogRepository
@@ -13,7 +13,7 @@ from app.repositories.complaint_repository import ComplaintRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.lawyer_repository import LawyerRepository
 from app.repositories.notification_repository import NotificationRepository
-from app.repositories.payment_repository import PaymentRepository
+from app.repositories.revenue_repository import RevenueRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.admin import (
     AdminAnalyticsResponse,
@@ -64,7 +64,6 @@ async def admin_dashboard(
     lawyers_repo = LawyerRepository(db)
     appts_repo = AppointmentRepository(db)
     complaints_repo = ComplaintRepository(db)
-    payments_repo = PaymentRepository(db)
 
     total_users = await users_repo.count_all()
     total_lawyer_profiles = await lawyers_repo.count_all()
@@ -76,7 +75,7 @@ async def admin_dashboard(
     open_complaints = await complaints_repo.count_in_statuses(
         (ComplaintStatus.OPEN, ComplaintStatus.IN_PROGRESS)
     )
-    total_revenue = await payments_repo.sum_by_status(PaymentStatus.PAID)
+    total_revenue = await RevenueRepository(db).total()
 
     return AdminDashboardResponse(
         total_users=total_users,
@@ -292,16 +291,23 @@ async def admin_list_complaints(
         else None
     )
     result = await repo.list_all(status=status_enum, page=page, page_size=page_size)
-    users = await UserRepository(db).find_by_ids([c["user_id"] for c in result["items"]])
+    user_ids = {c["user_id"] for c in result["items"]}
+    user_ids.update(
+        c["target_user_id"] for c in result["items"] if c.get("target_user_id")
+    )
+    users = await UserRepository(db).find_by_ids(list(user_ids))
     user_map = {str(u["_id"]): u for u in users}
     items = []
     for c in result["items"]:
         d = dict(c)
         d["id"] = str(d["_id"])
         d.pop("_id", None)
-        u = user_map.get(d["user_id"], {})
-        d["user_name"] = u.get("name", "")
-        d["user_email"] = u.get("email", "")
+        reporter = user_map.get(d["user_id"], {})
+        d["user_name"] = reporter.get("name", "")
+        d["user_email"] = reporter.get("email", "")
+        target = user_map.get(d.get("target_user_id") or "", {})
+        d["target_user_name"] = target.get("name", "")
+        d["target_user_email"] = target.get("email", "")
         items.append(d)
     return {"items": items, "total": result["total"], "page": result["page"], "page_size": result["page_size"]}
 
@@ -317,10 +323,12 @@ async def admin_respond_complaint(
     complaint = await repo.find_by_id(complaint_id)
     if complaint is None:
         raise HTTPException(status_code=404, detail="Complaint not found")
-    updated = await repo.update_status(
+    updated = await repo.respond(
         complaint_id,
         payload.status,
         admin_note=payload.admin_note,
+        reporter_response=payload.reporter_response,
+        reported_response=payload.reported_response,
     )
     await _audit(
         db,
@@ -328,15 +336,36 @@ async def admin_respond_complaint(
         "complaint.respond",
         "complaint",
         complaint_id,
-        {"status": payload.status.value},
+        {
+            "status": payload.status.value,
+            "reporter_response": bool(payload.reporter_response),
+            "reported_response": bool(payload.reported_response),
+        },
     )
-    await NotificationRepository(db).create(
+    notifications = NotificationRepository(db)
+    await notifications.create(
         user_id=complaint["user_id"],
         notification_type="COMPLAINT",
         title="Complaint updated",
         message=f"Your complaint status is now {payload.status.value}.",
         data={"complaint_id": complaint_id},
     )
+    if payload.reporter_response:
+        await notifications.create(
+            user_id=complaint["user_id"],
+            notification_type="COMPLAINT",
+            title="Response to your complaint",
+            message="An administrator replied to your complaint.",
+            data={"complaint_id": complaint_id, "direction": "reporter"},
+        )
+    if payload.reported_response and complaint.get("target_user_id"):
+        await notifications.create(
+            user_id=complaint["target_user_id"],
+            notification_type="COMPLAINT",
+            title="A complaint about you was reviewed",
+            message="An administrator left a response regarding a complaint about you.",
+            data={"complaint_id": complaint_id, "direction": "reported"},
+        )
     d = dict(updated)
     d["id"] = str(d["_id"])
     d.pop("_id", None)
@@ -352,7 +381,6 @@ async def admin_analytics(
     lawyers_repo = LawyerRepository(db)
     appts_repo = AppointmentRepository(db)
     complaints_repo = ComplaintRepository(db)
-    payments_repo = PaymentRepository(db)
 
     users_by_role = {}
     for r in UserRole:
@@ -387,9 +415,7 @@ async def admin_analytics(
         for p in top_lawyer_docs
     ]
 
-    revenue_by_status = {}
-    for s in PaymentStatus:
-        revenue_by_status[s.value] = await payments_repo.sum_by_status(s)
+    revenue_by_source = await RevenueRepository(db).total_by_source()
 
     return AdminAnalyticsResponse(
         users_by_role=users_by_role,
@@ -399,7 +425,7 @@ async def admin_analytics(
         appointments_by_month=month_items,
         top_categories=category_items,
         top_lawyers=top_lawyers,
-        revenue_by_status=revenue_by_status,
+        revenue_by_source=revenue_by_source,
     )
 
 
@@ -458,9 +484,9 @@ async def _build_report_summary(
             s.value: await complaints_repo.count_by_status(s) for s in ComplaintStatus
         }
     elif report_type == "revenue":
-        payments_repo = PaymentRepository(db)
-        summary["total_paid"] = await payments_repo.sum_by_status(PaymentStatus.PAID)
-        summary["paid_count"] = await payments_repo.count_by_status(PaymentStatus.PAID)
+        revenue_repo = RevenueRepository(db)
+        summary["total_revenue"] = await revenue_repo.total()
+        summary["by_source"] = await revenue_repo.total_by_source()
     return summary
 
 

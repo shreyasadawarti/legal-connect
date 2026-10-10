@@ -1,12 +1,13 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, Loader2, Lock } from 'lucide-react'
+import { CheckCircle2, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { z } from 'zod'
 
 import AuthShell from '@/components/auth/AuthShell'
+import PasswordInput from '@/components/PasswordInput'
 import { resetPassword } from '@/services/authService'
 
 const schema = z
@@ -23,7 +24,6 @@ type Form = z.infer<typeof schema>
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token') ?? ''
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [error, setError] = useState<string | null>(null)
 
@@ -33,7 +33,6 @@ export default function ResetPasswordPage() {
     mutationFn: (data: Form) => resetPassword(token, data.password),
     onSuccess: () => {
       queryClient.clear()
-      navigate('/login')
     },
     onError: (err: unknown) => {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -44,7 +43,7 @@ export default function ResetPasswordPage() {
   if (!token) {
     return (
       <AuthShell title="Invalid link" subtitle="This password reset link is missing a token.">
-        <div className="rounded-2xl border border-surface-200 bg-white p-8 text-center dark:border-surface-800 dark:bg-surface-800">
+        <div className="rounded-2xl border border-surface-200 bg-white p-6 text-center dark:border-surface-800 dark:bg-surface-800 sm:p-8">
           <p className="text-sm text-surface-600 dark:text-surface-300">Please use the link from your email.</p>
           <Link to="/forgot-password" className="mt-4 inline-block text-sm font-medium text-brand-600 hover:text-brand-700">
             Request a new link
@@ -59,27 +58,26 @@ export default function ResetPasswordPage() {
       <Link to="/login" className="font-medium text-brand-600 hover:text-brand-700">Back to sign in</Link>
     )}>
       {mutation.isSuccess ? (
-        <div className="rounded-2xl border border-surface-200 bg-white p-8 text-center dark:border-surface-800 dark:bg-surface-800">
+        <div className="rounded-2xl border border-surface-200 bg-white p-6 text-center dark:border-surface-800 dark:bg-surface-800 sm:p-8">
           <CheckCircle2 className="mx-auto h-12 w-12 text-green-500" />
-          <p className="mt-4 text-sm text-surface-600 dark:text-surface-300">Password updated. Redirecting to sign in...</p>
+          <p className="mt-4 text-sm text-surface-600 dark:text-surface-300">
+            Your password has been reset successfully. You can now sign in with your new password.
+          </p>
+          <Link to="/login" className="mt-5 inline-block rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700">
+            Sign in
+          </Link>
         </div>
       ) : (
-        <form noValidate onSubmit={handleSubmit((d) => mutation.mutate(d))} className="space-y-4 rounded-2xl border border-surface-200 bg-white p-6 shadow-sm dark:border-surface-800 dark:bg-surface-800">
+        <form noValidate onSubmit={handleSubmit((d) => mutation.mutate(d))} className="space-y-4 rounded-2xl border border-surface-200 bg-white p-5 shadow-sm dark:border-surface-800 dark:bg-surface-800 sm:p-6">
           {error && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">{error}</div>}
           <div>
             <label className="mb-1.5 block text-sm font-medium" htmlFor="password">New password</label>
-            <div className="relative">
-              <Lock className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-surface-400" />
-              <input id="password" type="password" {...register('password')} placeholder="Min 8 characters" className="w-full rounded-lg border border-surface-300 bg-surface-50 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-surface-700 dark:bg-surface-900" />
-            </div>
+            <PasswordInput id="password" {...register('password')} placeholder="Min 8 characters" />
             {errors.password && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.password.message}</p>}
           </div>
           <div>
             <label className="mb-1.5 block text-sm font-medium" htmlFor="confirmPassword">Confirm password</label>
-            <div className="relative">
-              <Lock className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-surface-400" />
-              <input id="confirmPassword" type="password" {...register('confirmPassword')} placeholder="Re-enter password" className="w-full rounded-lg border border-surface-300 bg-surface-50 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-surface-700 dark:bg-surface-900" />
-            </div>
+            <PasswordInput id="confirmPassword" {...register('confirmPassword')} placeholder="Re-enter password" />
             {errors.confirmPassword && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.confirmPassword.message}</p>}
           </div>
           <button type="submit" disabled={mutation.isPending} className="flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60">

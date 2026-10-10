@@ -33,7 +33,7 @@ export default function AdminAuditLogsPage() {
       </p>
 
       <div className="mt-6 overflow-x-auto rounded-2xl border border-surface-200 bg-white dark:border-surface-800 dark:bg-surface-800">
-        <table className="w-full text-left text-sm">
+        <table className="w-full min-w-[560px] text-left text-sm">
           <thead className="border-b border-surface-200 text-xs uppercase text-surface-500 dark:border-surface-700 dark:text-surface-400">
             <tr>
               <th className="px-4 py-3">Actor</th>
@@ -55,7 +55,7 @@ export default function AdminAuditLogsPage() {
                   {item.action}
                 </td>
                 <td className="px-4 py-3 capitalize">{item.entity_type}</td>
-                <td className="px-4 py-3 text-surface-500 dark:text-surface-400">
+                <td className="break-all px-4 py-3 font-mono text-xs text-surface-500 dark:text-surface-400">
                   {item.entity_id || '—'}
                 </td>
               </tr>

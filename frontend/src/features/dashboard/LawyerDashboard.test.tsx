@@ -343,4 +343,11 @@ describe('LawyerDashboard', () => {
       expect(hrefs).toContain(route)
     }
   })
+
+  it('links the Rating stat tile to the reviews page, not the profile', async () => {
+    routeAppointments([])
+    renderDashboard()
+    await waitFor(() => expect(statTile('Rating')).toBeTruthy())
+    expect(statTile('Rating').getAttribute('href')).toBe('/lawyer/reviews')
+  })
 })

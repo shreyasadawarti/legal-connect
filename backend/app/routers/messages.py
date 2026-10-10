@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import CurrentUser, require_db
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.message_repository import MessageRepository
+from app.repositories.user_block_repository import UserBlockRepository
 from app.schemas.chat import (
     MessageListResponse,
     MessageResponse,
@@ -43,7 +44,30 @@ async def list_messages(
 ):
     conv = await _get_conversation(db, conversation_id, user)
     messages = MessageRepository(db)
-    result = await messages.list_for_conversation(conversation_id, before, page_size)
+    # Fetching the conversation means its messages are now on this user's device,
+    # so mark the ones addressed to them delivered and let the sender know.
+    if await messages.mark_delivered(conversation_id, user["id"]):
+        peer_id = next(
+            (p for p in conv.get("participants", []) if p != user["id"]), None
+        )
+        if peer_id:
+            from app.websocket.manager import manager
+
+            await manager.send_to_user(
+                peer_id,
+                {
+                    "type": "delivered",
+                    "conversation_id": conversation_id,
+                    "user_id": user["id"],
+                },
+            )
+    state = await ConversationRepository(db).get_participant_state(
+        conversation_id, user["id"]
+    )
+    since = state.get("cleared_at") if state else None
+    result = await messages.list_for_conversation(
+        conversation_id, before, page_size, since=since
+    )
     return {
         "items": [serialize_message(m) for m in result["items"]],
         "has_more": result["has_more"],
@@ -66,6 +90,11 @@ async def send_message(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Conversation has only one participant",
+        )
+    if await UserBlockRepository(db).either_blocked(user["id"], recipient_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot message this user",
         )
     chat = ChatService(ConversationRepository(db), MessageRepository(db))
     message = await chat.send_message(

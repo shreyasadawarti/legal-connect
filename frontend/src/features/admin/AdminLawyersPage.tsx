@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 import { useState } from 'react'
 
-import { adminGetVerificationDocument, adminListLawyers, adminSetLawyerVerification } from '@/services/adminService'
+import { adminGetVerificationDocument, adminListLawyers, adminSetLawyerVerification, triggerDownload } from '@/services/adminService'
 import type { AdminLawyerItem, LawyerStatus } from '@/types/platform'
 
 const STATUS_COLOR: Record<string, string> = {
@@ -27,12 +27,12 @@ export default function AdminLawyersPage() {
         Review and verify lawyer profiles.
       </p>
 
-      <div className="mt-6 flex gap-2">
+      <div className="mt-6 flex flex-wrap gap-2">
         {['', 'PENDING_VERIFICATION', 'ACTIVE', 'REJECTED', 'SUSPENDED'].map((s) => (
           <button
             key={s}
             onClick={() => setFilter(s)}
-            className={`rounded-full px-3 py-1.5 text-xs font-medium ${
+            className={`rounded-full px-3 py-2 text-xs font-medium ${
               filter === s
                 ? 'bg-brand-600 text-white'
                 : 'border border-surface-300 text-surface-600 dark:border-surface-700 dark:text-surface-300'
@@ -98,8 +98,15 @@ function LawyerCard({ lawyer }: { lawyer: AdminLawyerItem }) {
     setProofError('')
     setProofBusy(true)
     try {
-      const { url } = await adminGetVerificationDocument(lawyer.user_id)
-      window.open(url, '_blank', 'noopener,noreferrer')
+      const { url, filename } = await adminGetVerificationDocument(lawyer.user_id)
+      try {
+        const res = await fetch(url)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const blob = await res.blob()
+        triggerDownload(blob, filename)
+      } catch {
+        window.open(url, '_blank', 'noopener,noreferrer')
+      }
     } catch (err) {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       setProofError(detail ?? 'Could not load the verification document.')
@@ -127,9 +134,9 @@ function LawyerCard({ lawyer }: { lawyer: AdminLawyerItem }) {
   return (
     <div className="rounded-2xl border border-surface-200 bg-white p-5 dark:border-surface-800 dark:bg-surface-800">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="font-semibold">{lawyer.name || 'Unnamed lawyer'}</p>
-          <p className="text-sm text-surface-500 dark:text-surface-400">{lawyer.email}</p>
+        <div className="min-w-0">
+          <p className="font-semibold break-words">{lawyer.name || 'Unnamed lawyer'}</p>
+          <p className="break-all text-sm text-surface-500 dark:text-surface-400">{lawyer.email}</p>
         </div>
         <span
           className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLOR[lawyer.verification_status] ?? ''}`}

@@ -30,11 +30,13 @@ import AdminUsersPage from '@/features/admin/AdminUsersPage'
 import DocumentsPage from '@/features/documents/DocumentsPage'
 import EmergencyHelpPage from '@/features/emergency/EmergencyHelpPage'
 import EarningsPage from '@/features/lawyer/EarningsPage'
+import LawyerReviewsPage from '@/features/lawyer/LawyerReviewsPage'
 import LawyerListPage from '@/features/lawyers/LawyerListPage'
 import LawyerProfilePage from '@/features/lawyers/LawyerProfilePage'
 import LawyerProfileSettingsPage from '@/features/lawyers/LawyerProfileSettingsPage'
 import NotificationsPage from '@/features/notifications/NotificationsPage'
 import ProfilePage from '@/features/profile/ProfilePage'
+import SettingsPage from '@/features/settings/SettingsPage'
 import DashboardLayout from '@/layouts/DashboardLayout'
 import PublicLayout from '@/layouts/PublicLayout'
 import AboutPage from '@/pages/AboutPage'
@@ -92,6 +94,15 @@ export default function App() {
       <Route element={<ProtectedRoute />}>
         <Route element={<DashboardLayout />}>
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          {/* Shared by citizen and lawyer; the backend token endpoint authorizes
+              the caller as a participant of the appointment. */}
+          <Route path="/video-call/:appointmentId" element={<VideoCallPage />} />
+
+          {/* Citizen and lawyer: complaints they filed and complaints against them */}
+          <Route element={<RoleRoute roles={['user', 'lawyer']} />}>
+            <Route path="/complaints" element={<ComplaintsPage />} />
+          </Route>
 
           {/* Citizen */}
           <Route element={<RoleRoute roles={['user']} />}>
@@ -99,7 +110,6 @@ export default function App() {
             <Route path="/lawyers" element={<LawyerListPage />} />
             <Route path="/lawyers/:userId" element={<LawyerProfilePage />} />
             <Route path="/appointments" element={<CitizenAppointmentsPage />} />
-            <Route path="/complaints" element={<ComplaintsPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/documents" element={<DocumentsPage />} />
             <Route path="/chat" element={<ChatPage />} />
@@ -121,7 +131,7 @@ export default function App() {
             <Route path="/lawyer/chat" element={<ChatPage />} />
             <Route path="/lawyer/chat/video" element={<VideoCallPage />} />
             <Route path="/lawyer/earnings" element={<EarningsPage />} />
-            <Route path="/lawyer/reviews" element={<Placeholder title="Reviews" />} />
+            <Route path="/lawyer/reviews" element={<LawyerReviewsPage />} />
           </Route>
 
           {/* Admin */}

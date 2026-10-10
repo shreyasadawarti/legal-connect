@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, FileText, Loader2, Lock, Share2, Trash2, Upload, Users } from 'lucide-react'
 import { useState } from 'react'
 
+import { triggerDownload } from '@/services/adminService'
 import {
   deleteDocument,
   getDownloadUrl,
@@ -34,8 +35,17 @@ function DocumentCard({ document }: { document: DocumentItem }) {
   const isOwner = currentUser?.id === document.owner_id
 
   const download = useMutation({
-    mutationFn: () => getDownloadUrl(document.id),
-    onSuccess: (data) => window.open(data.url, '_blank'),
+    mutationFn: async () => {
+      const { url, filename } = await getDownloadUrl(document.id)
+      try {
+        const res = await fetch(url)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const blob = await res.blob()
+        triggerDownload(blob, filename)
+      } catch {
+        window.open(url, '_blank')
+      }
+    },
   })
   const share = useMutation({
     mutationFn: async () => {
@@ -69,7 +79,7 @@ function DocumentCard({ document }: { document: DocumentItem }) {
 
   return (
     <div className="rounded-2xl border border-surface-200 bg-white p-4 dark:border-surface-800 dark:bg-surface-800">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <FileText className="h-5 w-5 shrink-0 text-brand-600" />
@@ -88,7 +98,7 @@ function DocumentCard({ document }: { document: DocumentItem }) {
             </p>
           )}
         </div>
-        <div className="flex shrink-0 flex-col gap-1.5">
+        <div className="flex flex-col gap-1.5 sm:shrink-0">
           <button
             onClick={() => download.mutate()}
             disabled={download.isPending}
@@ -111,7 +121,7 @@ function DocumentCard({ document }: { document: DocumentItem }) {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="Recipient email"
-                className="w-44 rounded-lg border border-surface-300 bg-surface-50 px-2 py-1 text-xs outline-none focus:border-brand-500 dark:border-surface-700 dark:bg-surface-900"
+                className="w-full rounded-lg border border-surface-300 bg-surface-50 px-2 py-1 text-xs outline-none focus:border-brand-500 dark:border-surface-700 dark:bg-surface-900 sm:w-44"
               />
               <div className="flex gap-1.5">
                 <button

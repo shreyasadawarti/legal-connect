@@ -40,13 +40,61 @@ services:
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
+      - key: CLOUDINARY_FOLDER
+        value: legal-connect
       - key: FRONTEND_URL
+        sync: false
+      - key: BACKEND_URL
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      # --- AI (OpenAI-compatible) ---
+      - key: AI_PROVIDER
+        value: openai
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL
         sync: false
+      - key: OPENAI_BASE_URL
+        sync: false
+      # --- Email: configure SMTP (used by this project) or Resend ---
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM_EMAIL
+        sync: false
+      - key: SMTP_USE_TLS
+        value: "true"
       - key: RESEND_API_KEY
+        sync: false
+      # --- Maps (Leaflet/OSM is the default; Google key is optional) ---
+      - key: GEOCODING_PROVIDER
+        value: nominatim
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      # --- WebRTC ---
+      - key: WEBRTC_STUN_SERVER
+        value: stun:stun.l.google.com:19302
+      - key: WEBRTC_TURN_SERVER
+        sync: false
+      - key: WEBRTC_TURN_USERNAME
+        sync: false
+      - key: WEBRTC_TURN_PASSWORD
+        sync: false
+      # --- ZEGOCLOUD video (server-side only) ---
+      - key: ZEGO_APP_ID
+        sync: false
+      - key: ZEGO_APP_SECRET
+        sync: false
+      # --- Razorpay payments ---
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
         sync: false

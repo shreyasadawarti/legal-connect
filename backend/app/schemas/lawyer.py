@@ -49,7 +49,7 @@ class LawyerProfileUpdate(BaseModel):
 class LawyerProfileResponse(BaseModel):
     user_id: str
     name: str
-    email: str
+    email: Optional[str] = None
     phone: Optional[str] = None
     profile_picture_url: Optional[str] = None
     bio: str = ""
@@ -61,6 +61,7 @@ class LawyerProfileResponse(BaseModel):
     city: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    distance_km: Optional[float] = None
     availability: list[AvailabilitySlot] = Field(default_factory=list)
     avg_rating: float = 0.0
     rating_count: int = 0
@@ -110,4 +111,15 @@ def serialize_lawyer_profile(
         profile.setdefault("email", "")
         profile.setdefault("phone", None)
         profile.setdefault("profile_picture_url", None)
+    return profile
+
+
+def redact_lawyer_contact(profile: dict[str, Any]) -> dict[str, Any]:
+    """Blank a lawyer's private contact details for public listings.
+
+    Citizens reach lawyers through in-app chat and appointments, so email and
+    phone must not be exposed by directory/search responses.
+    """
+    profile["email"] = None
+    profile["phone"] = None
     return profile

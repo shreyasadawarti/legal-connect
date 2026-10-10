@@ -56,7 +56,7 @@ export default function LawyerListPage() {
       </p>
 
       <div className="mt-6 rounded-2xl border border-surface-200 bg-white p-4 dark:border-surface-800 dark:bg-surface-800">
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-surface-400" />
             <input
@@ -98,7 +98,7 @@ export default function LawyerListPage() {
         <div className="mt-3 flex justify-end">
           <button
             onClick={apply}
-            className="rounded-lg bg-brand-600 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+            className="w-full rounded-lg bg-brand-600 px-5 py-2 text-sm font-semibold text-white hover:bg-brand-700 sm:w-auto"
           >
             Search
           </button>

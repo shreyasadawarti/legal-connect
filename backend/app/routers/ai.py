@@ -1,9 +1,10 @@
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import require_db
+from app.dependencies import CurrentUser, require_db
+from app.middleware.rate_limit import limiter
 from app.models.platform import LegalCategory
 from app.repositories.lawyer_repository import LawyerRepository
 from app.repositories.user_repository import UserRepository
@@ -21,12 +22,14 @@ from app.schemas.ai import (
     AiTranslateRequest,
     AiTranslateResponse,
 )
-from app.schemas.lawyer import serialize_lawyer_profile
+from app.schemas.lawyer import redact_lawyer_contact, serialize_lawyer_profile
 from app.services.ai_service import AIError
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
 CATEGORY_KEYS = [c.value for c in LegalCategory]
+
+AI_RATE_LIMIT = "30/minute"
 
 
 def _get_ai():
@@ -42,8 +45,11 @@ def _ai_error(exc: AIError) -> HTTPException:
 
 
 @router.post("/chat", response_model=AiChatResponse)
+@limiter.limit(AI_RATE_LIMIT)
 async def ai_chat(
+    request: Request,
     payload: AiChatRequest,
+    user: CurrentUser,
     ai=Depends(_get_ai),
 ):
     try:
@@ -54,8 +60,11 @@ async def ai_chat(
 
 
 @router.post("/summarize", response_model=AiSummarizeResponse)
+@limiter.limit(AI_RATE_LIMIT)
 async def ai_summarize(
+    request: Request,
     payload: AiSummarizeRequest,
+    user: CurrentUser,
     ai=Depends(_get_ai),
 ):
     try:
@@ -66,8 +75,11 @@ async def ai_summarize(
 
 
 @router.post("/faq", response_model=AiFaqResponse)
+@limiter.limit(AI_RATE_LIMIT)
 async def ai_faq(
+    request: Request,
     payload: AiFaqRequest,
+    user: CurrentUser,
     ai=Depends(_get_ai),
 ):
     try:
@@ -83,8 +95,11 @@ async def ai_faq(
 
 
 @router.post("/predict-category", response_model=AiPredictResponse)
+@limiter.limit(AI_RATE_LIMIT)
 async def ai_predict_category(
+    request: Request,
     payload: AiPredictRequest,
+    user: CurrentUser,
     ai=Depends(_get_ai),
 ):
     categories = [c for c in (payload.categories or CATEGORY_KEYS) if c in CATEGORY_KEYS]
@@ -107,8 +122,11 @@ async def ai_predict_category(
 
 
 @router.post("/recommend-lawyers", response_model=AiRecommendResponse)
+@limiter.limit(AI_RATE_LIMIT)
 async def ai_recommend_lawyers(
+    request: Request,
     payload: AiRecommendRequest,
+    user: CurrentUser,
     db: AsyncSession = Depends(require_db),
     ai=Depends(_get_ai),
 ):
@@ -131,15 +149,18 @@ async def ai_recommend_lawyers(
     users = await UserRepository(db).find_by_ids(user_ids)
     user_map = {str(u["_id"]): u for u in users}
     items = [
-        serialize_lawyer_profile(p, user_map.get(p["user_id"]))
+        redact_lawyer_contact(serialize_lawyer_profile(p, user_map.get(p["user_id"])))
         for p in search["items"]
     ]
     return AiRecommendResponse(recommendations=items)
 
 
 @router.post("/translate", response_model=AiTranslateResponse)
+@limiter.limit(AI_RATE_LIMIT)
 async def ai_translate(
+    request: Request,
     payload: AiTranslateRequest,
+    user: CurrentUser,
     ai=Depends(_get_ai),
 ):
     try:
@@ -150,27 +171,39 @@ async def ai_translate(
 
 
 @router.get("/nearby-lawyers")
+@limiter.limit(AI_RATE_LIMIT)
 async def ai_nearby_lawyers(
+    request: Request,
+    user: CurrentUser,
     db: AsyncSession = Depends(require_db),
     lat: Optional[float] = Query(None, ge=-90, le=90),
     lng: Optional[float] = Query(None, ge=-180, le=180),
     radius_km: Optional[float] = Query(None, ge=1, le=20000),
     verified_only: bool = False,
+    sort: str = Query("rating", pattern="^(rating|distance)$"),
     limit: int = Query(100, ge=1, le=200),
 ):
     repo = LawyerRepository(db)
+    if lat is not None and lng is not None:
+        # Back-fill real office coordinates for lawyers who only published a
+        # city name (e.g. "Nagpur"). Best-effort: profiles that cannot be
+        # resolved simply stay out of the distance-based results.
+        from app.services.geocoding_service import ensure_missing_coordinates
+
+        await ensure_missing_coordinates(db)
     docs = await repo.list_with_geo(
         radius_km=radius_km,
         lat=lat,
         lng=lng,
         verified_only=verified_only,
+        sort=sort,
         limit=limit,
     )
     user_ids = [p["user_id"] for p in docs]
     users = await UserRepository(db).find_by_ids(user_ids)
     user_map = {str(u["_id"]): u for u in users}
     items = [
-        serialize_lawyer_profile(p, user_map.get(p["user_id"]))
+        redact_lawyer_contact(serialize_lawyer_profile(p, user_map.get(p["user_id"])))
         for p in docs
     ]
     return {"items": items, "total": len(items)}

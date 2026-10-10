@@ -47,6 +47,7 @@ from app.models.platform import (
     ComplaintStatus,
     LegalCategory,
     PaymentStatus,
+    RevenueEventType,
 )
 from app.models.user import LawyerStatus, UserRole, UserStatus
 
@@ -87,6 +88,9 @@ class User(Base):
     profile_picture_public_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     bio: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    auth_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reset_token_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    reset_token_expires_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
     status: Mapped[UserStatus] = mapped_column(
         enum_type(UserStatus, "user_status"), nullable=False, default=UserStatus.ACTIVE
     )
@@ -292,6 +296,8 @@ class ConversationParticipant(Base):
         ID, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     position: Mapped[int] = mapped_column(Integer, nullable=False)
+    hidden_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
+    cleared_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
 
     conversation: Mapped[Conversation] = relationship(back_populates="participants")
 
@@ -306,6 +312,12 @@ class Message(Base):
             "conversation_id",
             "recipient_id",
             "is_read",
+        ),
+        Index(
+            "ix_messages_undelivered",
+            "conversation_id",
+            "recipient_id",
+            "delivered_at",
         ),
     )
 
@@ -322,6 +334,10 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     message_type: Mapped[str] = mapped_column(String(20), nullable=False, default="text")
     is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # NULL until the recipient's client has actually received it. Distinct from
+    # `is_read`: delivered means "available on the recipient's device", read means
+    # "the recipient opened and saw it".
+    delivered_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=utcnow)
 
 
@@ -392,8 +408,12 @@ class Notification(Base):
 class Review(Base):
     __tablename__ = "reviews"
     __table_args__ = (
-        UniqueConstraint("lawyer_id", "reviewer_id", name="uq_reviews_lawyer_reviewer"),
+        # One review per appointment. NULL for legacy reviews created before
+        # reviews were tied to an appointment; MySQL allows repeated NULLs in a
+        # unique index, so those rows are unaffected.
+        UniqueConstraint("appointment_id", name="uq_reviews_appointment_id"),
         Index("ix_reviews_lawyer_id", "lawyer_id"),
+        Index("ix_reviews_appointment_id", "appointment_id"),
     )
 
     id: Mapped[str] = mapped_column(ID, primary_key=True, default=new_id)
@@ -402,6 +422,9 @@ class Review(Base):
     )
     reviewer_id: Mapped[str] = mapped_column(
         ID, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    appointment_id: Mapped[Optional[str]] = mapped_column(
+        ID, ForeignKey("appointments.id", ondelete="SET NULL"), nullable=True
     )
     rating: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -430,14 +453,37 @@ class Payment(Base):
         default=PaymentStatus.PENDING,
     )
     reference: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    gateway_order_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    gateway_payment_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    gateway_signature: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=utcnow)
+
+
+class RevenueEvent(Base):
+    __tablename__ = "revenue_events"
+    __table_args__ = (
+        Index("ix_revenue_events_created", "created_at"),
+        UniqueConstraint(
+            "event_type", "reference_id", name="uq_revenue_events_event_reference"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(ID, primary_key=True, default=new_id)
+    event_type: Mapped[RevenueEventType] = mapped_column(
+        enum_type(RevenueEventType, "revenue_event_type"),
+        nullable=False,
+    )
+    reference_id: Mapped[str] = mapped_column(ID, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(DECIMAL(12, 2), nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=utcnow)
 
 
 class Complaint(Base):
     __tablename__ = "complaints"
     __table_args__ = (
-        Index("ix_complaints_user_id", "user_id"),
+        Index("ix_complaints_reporter_created", "user_id", "created_at"),
         Index("ix_complaints_status", "status"),
+        Index("ix_complaints_target_user", "target_user_id"),
     )
 
     id: Mapped[str] = mapped_column(ID, primary_key=True, default=new_id)
@@ -447,12 +493,27 @@ class Complaint(Base):
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     related_appointment_id: Mapped[Optional[str]] = mapped_column(ID, nullable=True)
+    target_user_id: Mapped[Optional[str]] = mapped_column(
+        ID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    conversation_id: Mapped[Optional[str]] = mapped_column(
+        ID, ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True
+    )
+    category: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     status: Mapped[ComplaintStatus] = mapped_column(
         enum_type(ComplaintStatus, "complaint_status"),
         nullable=False,
         default=ComplaintStatus.OPEN,
     )
     admin_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reporter_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reporter_responded_at: Mapped[Optional[datetime]] = mapped_column(
+        UTCDateTime, nullable=True
+    )
+    reported_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reported_responded_at: Mapped[Optional[datetime]] = mapped_column(
+        UTCDateTime, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow
@@ -475,3 +536,42 @@ class AuditLog(Base):
     entity_id: Mapped[Optional[str]] = mapped_column(ID, nullable=True)
     details: Mapped[Optional[dict]] = mapped_column(JSONDict, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=utcnow)
+
+
+
+
+class UserBlock(Base):
+    __tablename__ = "user_blocks"
+    __table_args__ = (
+        Index("ix_user_blocks_blocker_id", "blocker_id"),
+        Index("ix_user_blocks_blocked_id", "blocked_id"),
+        UniqueConstraint("blocker_id", "blocked_id", name="uq_user_blocks_pair"),
+    )
+    blocker_id: Mapped[str] = mapped_column(ID, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    blocked_id: Mapped[str] = mapped_column(ID, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False, default=utcnow)
+
+
+class UserPreference(Base):
+    __tablename__ = "user_preferences"
+
+    user_id: Mapped[str] = mapped_column(
+        ID, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    # Free-form settings blob: notification toggles, interests, privacy flags.
+    data: Mapped[Optional[dict]] = mapped_column(JSONDict, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime, nullable=False, default=utcnow, onupdate=utcnow
+    )
+
+
+
+
+
+
+
+
+
+
+
+

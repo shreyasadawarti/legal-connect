@@ -51,13 +51,13 @@ export default function LawyerProfilePage() {
 
       <div className="mt-4 grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <div className="rounded-2xl border border-surface-200 bg-white p-6 dark:border-surface-800 dark:bg-surface-800">
+          <div className="rounded-2xl border border-surface-200 bg-white p-4 dark:border-surface-800 dark:bg-surface-800 sm:p-6">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex items-start gap-4">
+              <div className="flex min-w-0 items-start gap-4">
                 <UserAvatar src={lawyer.profile_picture_url} name={lawyer.name} size="xl" />
-                <div>
-                  <h1 className="text-2xl font-bold">{lawyer.name}</h1>
-                <div className="mt-2 flex items-center gap-3 text-sm text-surface-500 dark:text-surface-400">
+                <div className="min-w-0">
+                  <h1 className="break-words text-2xl font-bold">{lawyer.name}</h1>
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-surface-500 dark:text-surface-400">
                   <span className="flex items-center gap-1">
                     <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
                     {lawyer.avg_rating.toFixed(1)} ({lawyer.rating_count})
@@ -110,7 +110,7 @@ export default function LawyerProfilePage() {
             </dl>
           </div>
 
-          <div className="mt-6 rounded-2xl border border-surface-200 bg-white p-6 dark:border-surface-800 dark:bg-surface-800">
+          <div className="mt-6 rounded-2xl border border-surface-200 bg-white p-4 dark:border-surface-800 dark:bg-surface-800 sm:p-6">
             <h2 className="text-lg font-semibold">Client reviews</h2>
             {!reviews || reviews.items.length === 0 ? (
               <p className="mt-3 text-sm text-surface-500 dark:text-surface-400">No reviews yet.</p>
@@ -118,9 +118,9 @@ export default function LawyerProfilePage() {
               <div className="mt-4 space-y-4">
                 {reviews.items.map((review) => (
                   <div key={review.id} className="border-t border-surface-200 pt-4 dark:border-surface-700">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">{review.reviewer_name}</span>
-                      <span className="flex items-center gap-1 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="min-w-0 truncate text-sm font-medium">{review.reviewer_name}</span>
+                      <span className="flex shrink-0 items-center gap-1 text-sm">
                         <Star className="h-4 w-4 fill-amber-400 text-amber-400" /> {review.rating}
                       </span>
                     </div>

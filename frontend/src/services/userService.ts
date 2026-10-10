@@ -38,3 +38,26 @@ export async function removeProfilePicture(): Promise<User> {
   const { data } = await api.delete<User>('/users/me/profile-picture')
   return data
 }
+
+export interface BlockedUser {
+  id: string
+  name: string
+  role: string
+}
+
+export async function listMyBlocks(): Promise<BlockedUser[]> {
+  const { data } = await api.get<{ items: BlockedUser[]; total: number }>('/users/me/blocks')
+  return data.items
+}
+
+export async function blockUser(userId: string): Promise<void> {
+  await api.post(`/users/${userId}/block`)
+}
+
+export async function unblockUser(userId: string): Promise<void> {
+  await api.delete(`/users/${userId}/block`)
+}
+
+export async function deleteMyAccount(password: string): Promise<void> {
+  await api.delete('/users/me', { data: { password } })
+}

@@ -70,12 +70,25 @@ class Settings(BaseSettings):
 
     # --- Maps ---
     google_maps_api_key: str = ""
+    # Geocoding provider used to resolve lawyer office cities into coordinates
+    # for the "nearby lawyers" feature. Only "nominatim" (OpenStreetMap, free
+    # and keyless) is currently implemented.
+    geocoding_provider: str = "nominatim"
 
     # --- WebRTC ---
     webrtc_stun_server: str = "stun:stun.l.google.com:19302"
     webrtc_turn_server: str = ""
     webrtc_turn_username: str = ""
     webrtc_turn_password: str = ""
+
+    # --- ZEGOCLOUD video calling (server-side only; never sent to the client) ---
+    zego_app_id: int = 0
+    zego_app_secret: str = ""
+
+    # --- Razorpay payments (server-side only; the key secret never reaches the client) ---
+    razorpay_key_id: str = ""
+    razorpay_key_secret: str = ""
+    razorpay_webhook_secret: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -118,6 +131,45 @@ class Settings(BaseSettings):
     @property
     def is_email_configured(self) -> bool:
         return bool(self.smtp_host or self.resend_api_key)
+
+    @property
+    def is_zego_configured(self) -> bool:
+        return bool(self.zego_app_id and self.zego_app_secret)
+
+    @property
+    def is_razorpay_configured(self) -> bool:
+        return bool(self.razorpay_key_id and self.razorpay_key_secret)
+
+
+_WEAK_SECRETS = {"", "change-this-secret", "change-this-jwt-secret"}
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0"}
+
+
+def validate_production_settings() -> None:
+    """Fail fast when production is misconfigured.
+
+    Catches the dangerous defaults (weak JWT/secret keys, localhost MySQL,
+    localhost-only CORS) that would otherwise boot silently and expose the app.
+    """
+    if settings.app_env != "production":
+        return
+
+    problems: list[str] = []
+    if settings.secret_key in _WEAK_SECRETS:
+        problems.append("SECRET_KEY must be set to a strong random value")
+    if settings.jwt_secret_key in _WEAK_SECRETS:
+        problems.append("JWT_SECRET_KEY must be set to a strong random value")
+    if not settings.is_mysql_configured or settings.mysql_host in _LOCAL_HOSTS:
+        problems.append("MYSQL_HOST must point at a reachable managed database")
+    origins = settings.cors_origin_list
+    if not origins or all(o.startswith("http://localhost") or o.startswith("http://127.0.0.1") for o in origins):
+        problems.append("CORS_ORIGINS must list the deployed frontend origin(s)")
+
+    if problems:
+        raise RuntimeError(
+            "Refusing to start in production with insecure configuration: "
+            + "; ".join(problems)
+        )
 
 
 @lru_cache

@@ -48,6 +48,83 @@ class PaymentRepository:
         row = result.scalar_one_or_none()
         return payment_to_doc(row) if row else None
 
+    async def create_pending(
+        self,
+        *,
+        appointment_id: str,
+        payee_id: str,
+        amount: Decimal,
+        gateway_order_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Create a PENDING payment awaiting gateway capture."""
+        row = Payment(
+            appointment_id=appointment_id,
+            payee_id=payee_id,
+            amount=amount,
+            status=PaymentStatus.PENDING,
+            reference=f"LC-{uuid4().hex[:10].upper()}",
+            gateway_order_id=gateway_order_id,
+            created_at=utcnow(),
+        )
+        self.db.add(row)
+        await self.db.flush()
+        return payment_to_doc(row)
+
+    async def attach_order(
+        self, payment_id: str, gateway_order_id: str
+    ) -> Optional[dict[str, Any]]:
+        row = await self.db.get(Payment, payment_id)
+        if row is None:
+            return None
+        row.gateway_order_id = gateway_order_id
+        await self.db.flush()
+        return payment_to_doc(row)
+
+    async def mark_paid(
+        self,
+        payment_id: str,
+        *,
+        gateway_payment_id: Optional[str] = None,
+        gateway_signature: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        row = await self.db.get(Payment, payment_id)
+        if row is None:
+            return None
+        row.status = PaymentStatus.PAID
+        if gateway_payment_id:
+            row.gateway_payment_id = gateway_payment_id
+        if gateway_signature:
+            row.gateway_signature = gateway_signature
+        await self.db.flush()
+        return payment_to_doc(row)
+
+    async def mark_failed(self, payment_id: str) -> Optional[dict[str, Any]]:
+        row = await self.db.get(Payment, payment_id)
+        if row is None:
+            return None
+        row.status = PaymentStatus.FAILED
+        await self.db.flush()
+        return payment_to_doc(row)
+
+    async def find_by_order_id(self, gateway_order_id: str) -> Optional[dict[str, Any]]:
+        result = await self.db.execute(
+            select(Payment).where(Payment.gateway_order_id == gateway_order_id)
+        )
+        row = result.scalar_one_or_none()
+        return payment_to_doc(row) if row else None
+
+    async def find_latest_for_appointment(
+        self, appointment_id: str
+    ) -> Optional[dict[str, Any]]:
+        result = await self.db.execute(
+            select(Payment)
+            .where(Payment.appointment_id == appointment_id)
+            .order_by(Payment.created_at.desc())
+            .limit(1)
+        )
+        row = result.scalar_one_or_none()
+        return payment_to_doc(row) if row else None
+
     async def list_for_payee(
         self,
         payee_id: str,

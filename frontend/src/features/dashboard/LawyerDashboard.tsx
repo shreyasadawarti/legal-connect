@@ -229,7 +229,7 @@ export default function LawyerDashboard() {
       value: profile ? profile.avg_rating.toFixed(1) : '—',
       sub: profile ? `${profile.rating_count} review${profile.rating_count === 1 ? '' : 's'}` : 'Loading',
       icon: Star,
-      to: '/lawyer/profile',
+      to: '/lawyer/reviews',
     },
   ]
 
@@ -241,7 +241,7 @@ export default function LawyerDashboard() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold">Welcome, {user?.name}</h1>
+      <h1 className="text-2xl font-bold break-words">Welcome, {user?.name}</h1>
       <p className="mt-1 text-sm text-surface-600 dark:text-surface-300">
         Your practice overview.
       </p>

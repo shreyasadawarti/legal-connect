@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Optional
 
 from fastapi import HTTPException, status
@@ -56,6 +57,13 @@ class UserRepository:
     async def find_by_email(self, email: str) -> Optional[dict[str, Any]]:
         result = await self.db.execute(
             select(User).where(func.lower(User.email) == email.lower())
+        )
+        row = result.scalar_one_or_none()
+        return user_to_doc(row) if row else None
+
+    async def find_by_reset_token(self, token_hash: str) -> Optional[dict[str, Any]]:
+        result = await self.db.execute(
+            select(User).where(User.reset_token_hash == token_hash)
         )
         row = result.scalar_one_or_none()
         return user_to_doc(row) if row else None
@@ -126,6 +134,29 @@ class UserRepository:
 
     async def mark_email_verified(self, user_id: str) -> Optional[dict[str, Any]]:
         return await self.update(user_id, {"is_email_verified": True})
+
+    async def set_reset_token(
+        self, user_id: str, token_hash: str, expires_at: datetime
+    ) -> Optional[dict[str, Any]]:
+        return await self.update(
+            user_id,
+            {"reset_token_hash": token_hash, "reset_token_expires_at": expires_at},
+        )
+
+    async def clear_reset_token(self, user_id: str) -> Optional[dict[str, Any]]:
+        return await self.update(
+            user_id,
+            {"reset_token_hash": None, "reset_token_expires_at": None},
+        )
+
+    async def increment_auth_version(self, user_id: str) -> int:
+        """Bump auth_version so previously-issued JWTs are rejected."""
+        user = await self.find_by_id(user_id)
+        if user is None:
+            return 0
+        ver = int(user.get("auth_version", 0)) + 1
+        await self.update(user_id, {"auth_version": ver})
+        return ver
 
     async def list_all(
         self,

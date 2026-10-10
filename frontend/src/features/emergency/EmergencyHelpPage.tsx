@@ -47,7 +47,7 @@ const HELPLINES = [
 export default function EmergencyHelpPage() {
   return (
     <div>
-      <div className="rounded-2xl border border-red-200 bg-red-50 p-6 dark:border-red-900 dark:bg-red-900/20">
+      <div className="rounded-2xl border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-900/20 sm:p-6">
         <h1 className="text-2xl font-bold text-red-800 dark:text-red-200">
           Emergency Legal Help
         </h1>
@@ -63,9 +63,9 @@ export default function EmergencyHelpPage() {
             key={h.name}
             className="rounded-2xl border border-surface-200 bg-white p-5 dark:border-surface-800 dark:bg-surface-800"
           >
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="font-semibold">{h.name}</h3>
-              <Phone className="h-4 w-4 text-brand-600" />
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="min-w-0 break-words font-semibold">{h.name}</h3>
+              <Phone className="h-4 w-4 shrink-0 text-brand-600" />
             </div>
             <a
               href={`tel:${h.number}`}
@@ -78,7 +78,7 @@ export default function EmergencyHelpPage() {
         ))}
       </div>
 
-      <div className="mt-6 rounded-2xl border border-brand-200 bg-brand-50 p-6 dark:border-brand-900 dark:bg-brand-900/20">
+      <div className="mt-6 rounded-2xl border border-brand-200 bg-brand-50 p-4 dark:border-brand-900 dark:bg-brand-900/20 sm:p-6">
         <h2 className="text-lg font-semibold text-brand-800 dark:text-brand-200">
           Find a lawyer nearby
         </h2>

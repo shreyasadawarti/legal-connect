@@ -1,8 +1,11 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import CurrentUser, require_db
+from app.models.platform import AppointmentStatus
+from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.lawyer_repository import LawyerRepository
 from app.repositories.review_repository import ReviewRepository
 from app.repositories.user_repository import UserRepository
@@ -34,18 +37,64 @@ async def create_review(
             status_code=status.HTTP_404_NOT_FOUND, detail="Lawyer profile not found"
         )
     reviews = ReviewRepository(db)
-    existing = await reviews.find_by_user_and_lawyer(user["id"], payload.lawyer_id)
-    if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="You have already reviewed this lawyer",
+
+    if payload.appointment_id:
+        appointment = await AppointmentRepository(db).find_by_id(
+            payload.appointment_id
         )
-    doc = await reviews.create(
-        lawyer_id=payload.lawyer_id,
-        reviewer_id=user["id"],
-        rating=payload.rating,
-        comment=payload.comment,
-    )
+        if appointment is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Appointment not found"
+            )
+        if appointment["client_id"] != user["id"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only review your own appointments",
+            )
+        if appointment["lawyer_id"] != payload.lawyer_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Lawyer does not match the appointment",
+            )
+        if appointment["status"] != AppointmentStatus.COMPLETED.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You can only review a completed appointment",
+            )
+        if await reviews.find_by_appointment(payload.appointment_id) is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="You have already reviewed this appointment",
+            )
+        try:
+            doc = await reviews.create(
+                lawyer_id=payload.lawyer_id,
+                reviewer_id=user["id"],
+                rating=payload.rating,
+                comment=payload.comment,
+                appointment_id=payload.appointment_id,
+            )
+        except IntegrityError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="You have already reviewed this appointment",
+            ) from exc
+    else:
+        existing = await reviews.find_by_user_and_lawyer(
+            user["id"], payload.lawyer_id
+        )
+        if existing is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="You have already reviewed this lawyer",
+            )
+        doc = await reviews.create(
+            lawyer_id=payload.lawyer_id,
+            reviewer_id=user["id"],
+            rating=payload.rating,
+            comment=payload.comment,
+        )
+
     await _refresh_lawyer_rating(db, payload.lawyer_id)
     return ReviewResponse.model_validate(serialize_review(doc))
 

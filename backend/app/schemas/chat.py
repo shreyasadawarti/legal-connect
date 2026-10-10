@@ -38,6 +38,8 @@ class MessageResponse(BaseModel):
     content: str
     message_type: str = "text"
     is_read: bool = False
+    delivered: bool = False
+    delivered_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
 
 

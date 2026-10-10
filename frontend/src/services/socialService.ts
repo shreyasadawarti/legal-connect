@@ -1,10 +1,13 @@
 import api from '@/services/api'
-import type { Complaint, Paged } from '@/types/platform'
+import type { Complaint, ComplaintAgainstMe, Paged } from '@/types/platform'
 
 export interface ComplaintPayload {
   subject: string
   description: string
   related_appointment_id?: string
+  target_user_id?: string
+  conversation_id?: string
+  category?: string
 }
 
 export async function createComplaint(payload: ComplaintPayload): Promise<Complaint> {
@@ -17,15 +20,33 @@ export async function listMyComplaints(page = 1): Promise<Paged<Complaint>> {
   return data
 }
 
-export async function submitReview(lawyerId: string, rating: number, comment?: string) {
-  return api.post('/reviews', { lawyer_id: lawyerId, rating, comment })
-}
-
-export async function listLawyerReviews(lawyerId: string): Promise<Paged<import('@/types/platform').Review>> {
-  const { data } = await api.get<Paged<import('@/types/platform').Review>>(`/reviews/${lawyerId}`)
+export async function listReceivedComplaints(page = 1): Promise<Paged<ComplaintAgainstMe>> {
+  const { data } = await api.get<Paged<ComplaintAgainstMe>>('/complaints/received', {
+    params: { page },
+  })
   return data
 }
 
-export async function makePayment(appointmentId: string, amount: number) {
-  return api.post('/payments', { appointment_id: appointmentId, amount })
+export async function submitReview(
+  lawyerId: string,
+  rating: number,
+  comment?: string,
+  appointmentId?: string,
+) {
+  return api.post('/reviews', {
+    lawyer_id: lawyerId,
+    rating,
+    comment,
+    appointment_id: appointmentId,
+  })
+}
+
+export async function listLawyerReviews(
+  lawyerId: string,
+  pageSize?: number,
+): Promise<Paged<import('@/types/platform').Review>> {
+  const { data } = await api.get<Paged<import('@/types/platform').Review>>(`/reviews/${lawyerId}`, {
+    params: pageSize ? { page_size: pageSize } : undefined,
+  })
+  return data
 }

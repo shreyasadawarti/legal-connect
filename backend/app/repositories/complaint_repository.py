@@ -26,6 +26,9 @@ class ComplaintRepository:
         subject: str,
         description: str,
         related_appointment_id: Optional[str] = None,
+        target_user_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        category: Optional[str] = None,
     ) -> dict[str, Any]:
         now = utcnow()
         row = Complaint(
@@ -33,6 +36,9 @@ class ComplaintRepository:
             subject=subject,
             description=description,
             related_appointment_id=related_appointment_id,
+            target_user_id=target_user_id,
+            conversation_id=conversation_id,
+            category=category,
             status=ComplaintStatus.OPEN,
             admin_note=None,
             created_at=now,
@@ -56,6 +62,16 @@ class ComplaintRepository:
         page_size: int = 20,
     ) -> dict[str, Any]:
         return await self._paginate([Complaint.user_id == user_id], page, page_size)
+
+    async def list_for_target(
+        self,
+        user_id: str,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict[str, Any]:
+        return await self._paginate(
+            [Complaint.target_user_id == user_id], page, page_size
+        )
 
     async def list_all(
         self,
@@ -100,6 +116,39 @@ class ComplaintRepository:
         if admin_note is not None:
             row.admin_note = admin_note
         row.updated_at = utcnow()
+        await self.db.flush()
+        return complaint_to_doc(row)
+
+    async def respond(
+        self,
+        complaint_id: str,
+        status: ComplaintStatus,
+        admin_note: Optional[str] = None,
+        reporter_response: Optional[str] = None,
+        reported_response: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Save an admin reply, stamping each direction's timestamp when set.
+
+        A response is written only when a non-empty value is supplied, so an
+        admin updating just the status never clears an earlier reply.
+        """
+        result = await self.db.execute(
+            select(Complaint).where(Complaint.id == complaint_id)
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        row.status = status
+        if admin_note is not None:
+            row.admin_note = admin_note
+        now = utcnow()
+        if reporter_response:
+            row.reporter_response = reporter_response
+            row.reporter_responded_at = now
+        if reported_response:
+            row.reported_response = reported_response
+            row.reported_responded_at = now
+        row.updated_at = now
         await self.db.flush()
         return complaint_to_doc(row)
 

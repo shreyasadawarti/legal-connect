@@ -12,10 +12,11 @@ vi.mock('@/services/authService', async (importOriginal) => {
   return {
     ...actual,
     register: vi.fn(),
+    resendVerification: vi.fn(),
   }
 })
 
-import { register } from '@/services/authService'
+import { register, resendVerification } from '@/services/authService'
 
 function renderRegister() {
   const queryClient = new QueryClient({
@@ -93,5 +94,54 @@ describe('RegisterPage', () => {
       phone: undefined,
       role: 'user',
     })
+  })
+
+  it('shows the check-your-email step after a successful registration', async () => {
+    const user = userEvent.setup()
+    vi.mocked(register).mockResolvedValue({
+      id: 'u1',
+      name: 'Test User',
+      email: 'test@example.com',
+      role: 'user',
+      is_email_verified: false,
+      status: 'ACTIVE',
+      created_at: '',
+      updated_at: '',
+    } as never)
+    renderRegister()
+    await user.type(screen.getByLabelText('Full name'), 'Test User')
+    await user.type(screen.getByLabelText('Email'), 'test@example.com')
+    await user.type(screen.getByLabelText('Password'), 'StrongPass123')
+    await user.type(screen.getByLabelText('Confirm password'), 'StrongPass123')
+    await user.click(screen.getByRole('button', { name: /create account/i }))
+
+    expect(await screen.findByRole('heading', { name: /check your email/i })).toBeInTheDocument()
+    expect(screen.getByText('test@example.com')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /create account/i })).not.toBeInTheDocument()
+  })
+
+  it('resends the verification email from the check-your-email step', async () => {
+    const user = userEvent.setup()
+    vi.mocked(register).mockResolvedValue({
+      id: 'u1',
+      name: 'Test User',
+      email: 'test@example.com',
+      role: 'user',
+      is_email_verified: false,
+      status: 'ACTIVE',
+      created_at: '',
+      updated_at: '',
+    } as never)
+    vi.mocked(resendVerification).mockResolvedValue(undefined)
+    renderRegister()
+    await user.type(screen.getByLabelText('Full name'), 'Test User')
+    await user.type(screen.getByLabelText('Email'), 'test@example.com')
+    await user.type(screen.getByLabelText('Password'), 'StrongPass123')
+    await user.type(screen.getByLabelText('Confirm password'), 'StrongPass123')
+    await user.click(screen.getByRole('button', { name: /create account/i }))
+
+    await user.click(await screen.findByRole('button', { name: /resend verification email/i }))
+    expect(resendVerification).toHaveBeenCalledWith('test@example.com')
+    expect(await screen.findByText(/sent again/i)).toBeInTheDocument()
   })
 })

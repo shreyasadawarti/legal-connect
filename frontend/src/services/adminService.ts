@@ -82,14 +82,25 @@ export async function adminListComplaints(params: {
   return data
 }
 
+export interface AdminComplaintResponsePayload {
+  status: ComplaintStatus
+  adminNote?: string
+  reporterResponse?: string
+  reportedResponse?: string
+}
+
 export async function adminRespondComplaint(
   complaintId: string,
-  status: ComplaintStatus,
-  adminNote?: string,
+  payload: AdminComplaintResponsePayload,
 ): Promise<AdminComplaintItem> {
   const { data } = await api.patch<AdminComplaintItem>(
     `/admin/complaints/${complaintId}`,
-    { status, admin_note: adminNote },
+    {
+      status: payload.status,
+      admin_note: payload.adminNote,
+      reporter_response: payload.reporterResponse,
+      reported_response: payload.reportedResponse,
+    },
   )
   return data
 }

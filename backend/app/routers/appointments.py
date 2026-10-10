@@ -1,14 +1,19 @@
 from typing import Annotated
+import json
+from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.dependencies import CurrentUser, require_db
-from app.models.platform import AppointmentStatus, NotificationType
+from app.models.platform import AppointmentStatus, NotificationType, RevenueEventType
 from app.models.user import LawyerStatus, UserRole
 from app.repositories.appointment_repository import AppointmentRepository
 from app.repositories.lawyer_repository import LawyerRepository
 from app.repositories.notification_repository import NotificationRepository
+from app.repositories.revenue_repository import COMMISSION_MULTIPLIER, RevenueRepository
+from app.repositories.review_repository import ReviewRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.appointment import (
     AppointmentCreate,
@@ -16,6 +21,7 @@ from app.schemas.appointment import (
     AppointmentResponse,
     serialize_appointment,
 )
+from app.utils.zego_token import ERROR_CODE_SUCCESS, generate_token04
 
 router = APIRouter(prefix="/appointments", tags=["appointments"])
 
@@ -45,6 +51,9 @@ async def _to_response(
     result = serialize_appointment(doc)
     result["lawyer_name"] = lawyer.get("name", "")
     result["client_name"] = client.get("name", "")
+    result["reviewed"] = (
+        await ReviewRepository(db).find_by_appointment(result["id"]) is not None
+    )
     # Citizen contact details exist for the assigned lawyer only. A citizen
     # reading their own appointment already has this data on their profile, so
     # withholding it here keeps the rule simple: it never travels to anyone who
@@ -170,6 +179,9 @@ user["id"], as_lawyer=as_lawyer, status=appt_status, page=page, page_size=page_s
     for doc in result["items"]:
         ids.extend([doc["lawyer_id"], doc["client_id"]])
     participants = await _participant_map(db, ids)
+    reviewed_ids = await ReviewRepository(db).reviewed_appointment_ids(
+        user["id"], [doc["_id"] for doc in result["items"]]
+    )
     items = []
     for doc in result["items"]:
         lawyer = participants.get(doc["lawyer_id"], {})
@@ -177,6 +189,7 @@ user["id"], as_lawyer=as_lawyer, status=appt_status, page=page, page_size=page_s
         r = serialize_appointment(doc)
         r["lawyer_name"] = lawyer.get("name", "")
         r["client_name"] = client.get("name", "")
+        r["reviewed"] = doc["_id"] in reviewed_ids
         if as_lawyer:
             r["client_profile_picture_url"] = client.get("profile_picture_url")
             r["client_phone"] = client.get("phone")
@@ -193,6 +206,60 @@ async def get_appointment(
 ):
     appointment = await _get_participant_appointment(db, appointment_id, user["id"])
     return await _to_response(db, appointment, user["id"])
+
+
+VIDEO_TOKEN_TTL_SECONDS = 3600
+
+
+@router.get("/{appointment_id}/video-token")
+async def get_video_token(
+    appointment_id: str,
+    user: CurrentUser,
+    db: AsyncSession = Depends(require_db),
+):
+    """Issue a ZEGOCLOUD room-join token for a confirmed appointment.
+
+    The caller must be the client or the lawyer of the appointment; the room id
+    is derived from the appointment so both participants always meet in the
+    same room. The ServerSecret used to sign the token never leaves this server.
+    """
+    appointment = await _get_participant_appointment(db, appointment_id, user["id"])
+    if appointment["status"] != AppointmentStatus.CONFIRMED.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Video calls are only available for confirmed appointments",
+        )
+    if not settings.is_zego_configured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Video calling is not configured on the server",
+        )
+
+    room_id = f"lc_{appointment_id}"
+    payload = json.dumps(
+        {"room_id": room_id, "privilege": {"1": 1, "2": 1}, "stream_id_list": None}
+    )
+    token_info = generate_token04(
+        app_id=settings.zego_app_id,
+        user_id=user["id"],
+        secret=settings.zego_app_secret,
+        effective_time_in_seconds=VIDEO_TOKEN_TTL_SECONDS,
+        payload=payload,
+    )
+    if token_info.error_code != ERROR_CODE_SUCCESS:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not generate a video call token",
+        )
+
+    return {
+        "room_id": room_id,
+        "token": token_info.token,
+        "app_id": settings.zego_app_id,
+        "user_id": user["id"],
+        "user_name": user["name"],
+        "expires_in": VIDEO_TOKEN_TTL_SECONDS,
+    }
 
 
 @router.patch("/{appointment_id}/cancel", response_model=AppointmentResponse)
@@ -309,6 +376,19 @@ async def complete_appointment(
     await _require_lawyer(db, appointment, user["id"])
     appointments = AppointmentRepository(db)
     updated = await appointments.update_status(appointment_id, AppointmentStatus.COMPLETED)
+    profile = await LawyerRepository(db).find_by_user_id(appointment["lawyer_id"])
+    if profile:
+        rate = profile.get("hourly_rate") or 0
+        if rate:
+            hours = (appointment["end_time"] - appointment["start_time"]).total_seconds() / 3600
+            commission = (
+                Decimal(str(rate)) * Decimal(str(hours)) * COMMISSION_MULTIPLIER
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            await RevenueRepository(db).record_idempotent(
+                RevenueEventType.COMMISSION,
+                appointment_id,
+                commission,
+            )
     await _notify(
         db, appointment["client_id"], NotificationType.APPOINTMENT, "Appointment completed",
         "Your appointment was marked as completed.",

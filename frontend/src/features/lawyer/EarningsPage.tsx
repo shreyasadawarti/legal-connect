@@ -37,7 +37,7 @@ function RecordRow({ record, hourlyRate }: { record: EarningsRecord; hourlyRate:
           {appointment.status === 'COMPLETED' ? 'Completed' : 'Confirmed'}
         </span>
       </div>
-      <div className="mt-2 flex items-center gap-1.5 text-sm text-surface-500 dark:text-surface-400">
+      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm text-surface-500 dark:text-surface-400">
         <Calendar className="h-4 w-4" />
         {fmtDate(appointment.start_time)}
       </div>

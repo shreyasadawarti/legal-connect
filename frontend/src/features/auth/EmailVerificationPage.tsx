@@ -39,7 +39,7 @@ export default function EmailVerificationPage() {
 
   return (
     <AuthShell title="Email verification" subtitle="Verifying your email address...">
-      <div className="rounded-2xl border border-surface-200 bg-white p-8 text-center dark:border-surface-800 dark:bg-surface-800">
+      <div className="rounded-2xl border border-surface-200 bg-white p-6 text-center dark:border-surface-800 dark:bg-surface-800 sm:p-8">
         {status === 'loading' && (
           <>
             <Loader2 className="mx-auto h-12 w-12 animate-spin text-brand-600" />
@@ -58,8 +58,11 @@ export default function EmailVerificationPage() {
           <>
             <Mail className="mx-auto h-12 w-12 text-red-500" />
             <p className="mt-4 text-sm text-surface-600 dark:text-surface-300">{error}</p>
-            <Link to="/register" className="mt-4 inline-block text-sm font-medium text-brand-600 hover:text-brand-700">
-              Go back
+            <p className="mt-2 text-xs text-surface-500 dark:text-surface-400">
+              You can request a new verification link from the sign-in page.
+            </p>
+            <Link to="/login" className="mt-4 inline-block text-sm font-medium text-brand-600 hover:text-brand-700">
+              Back to sign in
             </Link>
           </>
         )}
