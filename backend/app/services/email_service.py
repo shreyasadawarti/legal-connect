@@ -114,12 +114,22 @@ class EmailService:
         msg.attach(MIMEText(html_body, "html"))
         _, envelope_from = parseaddr(from_email)
         envelope_from = envelope_from or from_email
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
-            if settings.smtp_use_tls:
-                server.starttls()
-            if settings.smtp_username:
-                server.login(settings.smtp_username, settings.smtp_password)
-            server.sendmail(envelope_from, [to], msg.as_string())
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            try:
+                with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=45) as server:
+                    if settings.smtp_use_tls:
+                        server.starttls()
+                    if settings.smtp_username:
+                        server.login(settings.smtp_username, settings.smtp_password)
+                    server.sendmail(envelope_from, [to], msg.as_string())
+                return
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                logger.warning("SMTP attempt %d failed for %s: %s", attempt + 1, to, exc)
+        if last_exc is None:
+            return
+        raise last_exc
 
     def _send_resend(self, to: str, subject: str, text: str, html_body: str) -> None:
         import resend
