@@ -38,3 +38,6 @@ coverage.xml
 # Playwright
 test-results/
 playwright-report/
+
+# Generated admin report PDFs (may contain demo user data — never commit)
+reports/

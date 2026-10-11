@@ -704,7 +704,66 @@ amount, and every capture is HMAC-SHA256 signature-verified before it is recorde
 
 ---
 
-*Last updated: Consultation payments now run end-to-end through Razorpay — the amount is
+## 17. Cloud Deployment Preparation (Aiven + Render + Netlify)
+
+Prepared the app for public deployment: a managed **Aiven for MySQL** database
+(Free tier, Bangalore) preserving all existing data, a **Render** web service for the
+FastAPI backend and **Netlify** for the React frontend. Local development is
+unchanged; every code change is additive.
+
+**Backend**
+- MySQL TLS for managed providers: `Settings.mysql_ssl_required`, `mysql_ssl_ca`,
+  `mysql_skip_database_creation` and a `mysql_connect_args` property that builds an
+  `ssl.SSLContext` (CA-verified when a CA PEM is supplied, otherwise encrypted
+  without verification); `app/db/session.py` passes these to both async engines and
+  can skip the `CREATE DATABASE` bootstrap.
+- Migration `c9e8f1a2b3d4_add_is_demo_to_lawyer_profiles` (revises `b3c4d5e6f7a8`,
+  additive) adds `lawyer_profiles.is_demo BOOLEAN NOT NULL DEFAULT 0` and backfills
+  the five seed demo lawyers by email; surfaced through the model, serializer and
+  lawyer schema.
+- `scripts/rotate_demo_credentials.py` (`--dry-run`, `--include-citizens`) rotates the
+  shared `DemoPass123` password after go-live.
+
+**Frontend**
+- `is_demo?: boolean` added to the lawyer type; a **Demo** badge shown in
+  `LawyerListPage` and `LawyerProfilePage`.
+
+**Config / docs**
+- `.env.example` documents `MYSQL_SSL_REQUIRED` / `MYSQL_SSL_CA` /
+  `MYSQL_SKIP_DATABASE_CREATION`; `render.yaml` sets the Aiven TLS flags and now
+  prompts for `MYSQL_HOST` / `MYSQL_PORT` (non-standard Aiven port); `docs/deployment.md`
+  rewritten around Aiven + Render + Netlify with the TLS and demo-credential runbook.
+
+### Verification
+
+| Item | Result |
+|---|---|
+| Backend pytest (real MySQL) | 229 passed |
+| Frontend vitest | 154 passed |
+| `npm run build` / `npm run lint` | clean |
+| `alembic heads` | single head `c9e8f1a2b3d4` |
+| Data migration | verified backup (SHA-256 `0B18BE89...`) restored to a scratch DB (21 tables, 0 mismatches, head `c9e8f1a2b3d4`, 5 demo flags), then imported into Aiven over TLS; verified 21 tables, head `c9e8f1a2b3d4`, 5 demo lawyers, 13 users |
+
+**Status / next**
+- Commit `5695202` pushed to `origin/master`.
+- Aiven DB live and populated. Render backend created but still needs env values
+  (`MYSQL_HOST` / `MYSQL_PORT=17359`, reset password, TLS flags, strong
+  `SECRET_KEY` / `JWT_SECRET_KEY`, and a non-localhost `CORS_ORIGINS` / `FRONTEND_URL`
+  for the Netlify site - the app refuses to boot in production while CORS is
+  localhost). Netlify frontend not yet deployed.
+- Pending: rotate the exposed Aiven password, `scripts/create_admin.py`,
+  `scripts/rotate_demo_credentials.py`, Razorpay webhook
+  `{BACKEND_URL}/api/v1/payments/webhook`.
+
+---
+
+*Last updated: Deployment preparation is underway — the app now supports Aiven's
+TLS-encrypted MySQL (`MYSQL_SSL_REQUIRED` / `MYSQL_SSL_CA` / `MYSQL_SKIP_DATABASE_CREATION`),
+an `is_demo` flag marks the five seed lawyers (`revision c9e8f1a2b3d4`) with a Demo badge,
+and `render.yaml` / `docs/deployment.md` now target Aiven + Render + Netlify. The verified
+backup was imported into Aiven over TLS (21 tables, head `c9e8f1a2b3d4`, 5 demo lawyers,
+13 users) and commit `5695202` pushed; backend pytest 229 passed, frontend vitest 154
+passed, build and lint clean. Earlier: Consultation payments now run end-to-end through Razorpay — the amount is
 computed server-side from the lawyer's hourly rate and booked hours, the citizen completes
 Checkout on confirmed/completed appointments, and both the checkout signature and the webhook
 are HMAC-verified before a payment is marked PAID (`revision b3c4d5e6f7a8` adds three nullable
