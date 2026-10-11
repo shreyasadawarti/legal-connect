@@ -4,6 +4,7 @@ import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import parseaddr
 
 from app.config import settings
 
@@ -111,12 +112,14 @@ class EmailService:
         msg["To"] = to
         msg.attach(MIMEText(text, "plain"))
         msg.attach(MIMEText(html_body, "html"))
+        _, envelope_from = parseaddr(from_email)
+        envelope_from = envelope_from or from_email
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
             if settings.smtp_use_tls:
                 server.starttls()
             if settings.smtp_username:
                 server.login(settings.smtp_username, settings.smtp_password)
-            server.sendmail(from_email, [to], msg.as_string())
+            server.sendmail(envelope_from, [to], msg.as_string())
 
     def _send_resend(self, to: str, subject: str, text: str, html_body: str) -> None:
         import resend
