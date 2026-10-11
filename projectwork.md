@@ -757,7 +757,76 @@ unchanged; every code change is additive.
 
 ---
 
-*Last updated: Deployment preparation is underway — the app now supports Aiven's
+## 18. Production Deployment (Live)
+
+The app is now fully live and verified end-to-end.
+
+- **Frontend:** Netlify — `https://legalconnectt.netlify.app`
+  (`base=frontend`, `command=npm run build`, `publish=dist`; `VITE_API_URL` set).
+- **Backend:** Render web service — `https://legal-connect-v0z3.onrender.com`
+  (`runtime.txt` = Python 3.12.11; build `pip install -r requirements.txt`;
+  start `alembic upgrade head && uvicorn` on `$PORT`; `APP_ENV=production`,
+  `CORS_ORIGINS=FRONTEND_URL=https://legalconnectt.netlify.app`).
+- **Database:** Aiven MySQL (`legal_connect`) over TLS (`MYSQL_SSL_REQUIRED`,
+  `MYSQL_SSL_CA`, `MYSQL_SKIP_DATABASE_CREATION`, `AUTO_CREATE_TABLES=false`).
+
+**Fixes made during go-live**
+- `requirements.txt`: pinned `bcrypt==4.0.1` (passlib 1.7.4 incompatible with
+  `bcrypt>=4.1` which removed `__about__` → registration 500 on Render).
+- `email_service.py`: normalize the Resend/SMTP `From` to `Name <email>` format;
+  use a **bare envelope address** (`email.utils.parseaddr`) in `smtplib.sendmail`;
+  raise SMTP timeout to 45s with one retry; send **SendGrid mail over its HTTP
+  API** (`httpx` POST to `api.sendgrid.com/v3/mail/send`, Bearer
+  `SMTP_PASSWORD`) whenever `SMTP_HOST` contains `sendgrid`, because raw
+  SMTP reliably times out from Render's network.
+- `routers/auth.py`: catch MySQL `1205` (lock-wait timeout) on register and
+  return 503 instead of a 500.
+- CORS/`FRONTEND_URL` corrected to the Netlify origin (preflight 200).
+
+**Email provider decisions (recorded for later reference)**
+- Gmail SMTP: blocked from Render ("Network is unreachable").
+- Resend `onboarding@resend.dev`: delivered (HTTP) but **only to the Resend
+  account email** — rejects all other recipients.
+- SendGrid **Single Sender** (verified `sadawartishreya@gmail.com`): sending via
+  HTTP API works; `SMTP_FROM_EMAIL` must exactly match the verified sender
+  identity or SendGrid returns 403. Free tier ~100 emails/day. For unlimited
+  public recipients, verify a domain (see `docs/deployment.md` Phase D.5).
+
+### Verification
+
+| Item | Result |
+|---|---|
+| `GET /api/v1/health` | `{"status":"ok","services":{"api":"ok","mysql":"ok"}}` |
+| Register a new user (`hedauishant@gmail.com`) | `POST /register` 201; SendGrid `202 Accepted` |
+| Verification email → click link | `POST /verify-email` 200 (account marked verified) |
+| Login | `POST /login` 200 |
+| Appointments / conversations / blocks / WebSocket | all 200/connected |
+| Backend deploy | Live; `env=production`, MySQL over TLS |
+
+**Commits pushed to `origin/master`** (in order): `f2f8e9e` (bcrypt pin +
+runtime.txt + CORS), `240596a` (email From formatting), `6dc55ba` (email
+test→production docs), `ba724b9` (SendGrid env doc), `43dffad` (bare SMTP
+envelope from), `a39da8b` (SMTP timeout + retry), `93e2c4e` (SendGrid HTTP API +
+register lock-wait 503).
+
+**Known boundaries**
+- Unverified test attempts do **not** leave orphaned rows (register rolls back
+  on a 503), so no DB cleanup was needed.
+- Email volume limited by SendGrid's free tier; a verified sending domain is the
+  documented path to scale (Phase D.5).
+
+---
+
+*Last updated: Production is live and verified end-to-end — the React SPA on Netlify
+(`https://legalconnectt.netlify.app`), the FastAPI backend on Render
+(`https://legal-connect-v0z3.onrender.com`, Python 3.12) and Aiven MySQL over TLS. Registration,
+verification-email delivery and login were proven against a real account: SendGrid's HTTP API
+accepts the mail (`202 Accepted`), register returns 201, verify-email 200 and login 200, with
+appointments/WebSocket working. Go-live fixes: `bcrypt==4.0.1` pin for passlib, CORS origin fix,
+email `From` normalisation + bare SMTP envelope address, 45s SMTP timeout with retry, and a
+SendGrid HTTP sender (raw SMTP and Gmail SMTP are unreachable from Render; Resend test-sender
+only delivers to the account email). `SMTP_FROM_EMAIL` must match the verified SendGrid sender
+exactly (403 otherwise). Earlier: Deployment preparation is underway — the app now supports Aiven's
 TLS-encrypted MySQL (`MYSQL_SSL_REQUIRED` / `MYSQL_SSL_CA` / `MYSQL_SKIP_DATABASE_CREATION`),
 an `is_demo` flag marks the five seed lawyers (`revision c9e8f1a2b3d4`) with a Demo badge,
 and `render.yaml` / `docs/deployment.md` now target Aiven + Render + Netlify. The verified
