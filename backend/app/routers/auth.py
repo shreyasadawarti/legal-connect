@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.compat import utcnow
@@ -64,13 +65,21 @@ async def register(request: Request, payload: RegisterRequest, db: AsyncSession 
             detail="Admin accounts cannot be registered. Contact an administrator.",
         )
     password_hash = auth_service.hash_password(payload.password)
-    created = await repo.create(
-        name=payload.name,
-        email=payload.email,
-        password_hash=password_hash,
-        phone=payload.phone,
-        role=payload.role,
-    )
+    try:
+        created = await repo.create(
+            name=payload.name,
+            email=payload.email,
+            password_hash=password_hash,
+            phone=payload.phone,
+            role=payload.role,
+        )
+    except OperationalError as exc:
+        if getattr(exc.orig, "args", [None]) and "1205" in str(exc.orig.args[0]):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Database is busy. Please try again.",
+            ) from exc
+        raise
     if payload.role in (UserRole.USER, UserRole.LAWYER):
         await RevenueRepository(db).record_idempotent(
             RevenueEventType.REGISTRATION,

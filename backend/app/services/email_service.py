@@ -98,11 +98,58 @@ class EmailService:
         try:
             if settings.resend_api_key:
                 await asyncio.to_thread(self._send_resend, to, subject, text, html_body)
+            elif settings.smtp_host and "sendgrid" in settings.smtp_host.lower():
+                await asyncio.to_thread(self._send_sendgrid_http, to, subject, text, html_body)
             else:
                 await asyncio.to_thread(self._send_smtp, to, subject, text, html_body)
         except Exception as exc:  # noqa: BLE001
             logger.error("Email delivery failed for %s (subject '%s'): %s", to, subject, exc)
             raise EmailDeliveryError("Failed to send email") from exc
+
+    def _send_sendgrid_http(self, to: str, subject: str, text: str, html_body: str) -> None:
+        import httpx
+
+        from_email = settings.smtp_from_email or "Legal Connect <noreply@legalconnect.local>"
+        from_name, from_addr = parseaddr(from_email)
+        json_payload = {
+            "personalizations": [{"to": [{"email": to}]}],
+            "from": {"email": from_addr or from_email, "name": from_name or "Legal Connect"},
+            "subject": subject,
+            "content": [
+                {"type": "text/plain", "value": text},
+                {"type": "text/html", "value": html_body},
+            ],
+        }
+        headers = {
+            "Authorization": f"Bearer {settings.smtp_password}",
+            "Content-Type": "application/json",
+        }
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            try:
+                response = httpx.post(
+                    "https://api.sendgrid.com/v3/mail/send",
+                    json=json_payload,
+                    headers=headers,
+                    timeout=30,
+                )
+                response.raise_for_status()
+                return
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                response_body = ""
+                if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+                    response_body = exc.response.text[:300]
+                logger.warning(
+                    "SendGrid HTTP attempt %d failed for %s: %s%s",
+                    attempt + 1,
+                    to,
+                    exc,
+                    f" ({response_body})" if response_body else "",
+                )
+        if last_exc is None:
+            return
+        raise last_exc
 
     def _send_smtp(self, to: str, subject: str, text: str, html_body: str) -> None:
         msg = MIMEMultipart("alternative")
