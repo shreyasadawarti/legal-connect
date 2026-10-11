@@ -106,7 +106,8 @@ class EmailService:
     def _send_smtp(self, to: str, subject: str, text: str, html_body: str) -> None:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = settings.smtp_from_email
+        from_email = settings.smtp_from_email or "Legal Connect <noreply@legalconnect.local>"
+        msg["From"] = from_email
         msg["To"] = to
         msg.attach(MIMEText(text, "plain"))
         msg.attach(MIMEText(html_body, "html"))
@@ -115,14 +116,15 @@ class EmailService:
                 server.starttls()
             if settings.smtp_username:
                 server.login(settings.smtp_username, settings.smtp_password)
-            server.sendmail(settings.smtp_from_email, [to], msg.as_string())
+            server.sendmail(from_email, [to], msg.as_string())
 
     def _send_resend(self, to: str, subject: str, text: str, html_body: str) -> None:
         import resend
 
         resend.api_key = settings.resend_api_key
+        from_email = settings.smtp_from_email or "Legal Connect <onboarding@resend.dev>"
         params = {
-            "from": settings.smtp_from_email or "Legal Connect <onboarding@resend.dev>",
+            "from": from_email,
             "to": [to],
             "subject": subject,
             "text": text,
