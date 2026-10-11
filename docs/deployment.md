@@ -136,7 +136,9 @@ Keep these handy for Phase C and for creating the admin account (Phase F).
    | `GOOGLE_MAPS_API_KEY`, `WEBRTC_TURN_*` **(secret)** | optional |
 
    > Email matters: unverified accounts cannot log in. Configure SMTP **or**
-   > `RESEND_API_KEY` before inviting users.
+   > `RESEND_API_KEY` before inviting users. Without a verified Resend domain,
+   > `onboarding@resend.dev` only delivers to the Resend account's own email —
+   > see Phase D.5 to move to a verified production sender.
 3. Deploy. Confirm:
    - Build runs `pip install -r requirements.txt`.
    - Start runs `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
@@ -169,6 +171,61 @@ Keep these handy for Phase C and for creating the admin account (Phase F).
 3. Deploy, then open the Netlify URL. If the SPA cannot reach the API, it is
    almost always CORS: go back to Phase C and set `CORS_ORIGINS` to the exact
    Netlify origin (scheme + host, no trailing slash) and redeploy the backend.
+
+---
+
+## Phase D.5 — Email delivery: Resend test sender → verified production domain
+
+The app sends one kind of mail — verification and password-reset — through either
+SMTP or Resend (`RESEND_API_KEY` takes precedence when set). No code change is
+needed to move from test delivery to real delivery; only the `from` address
+changes.
+
+### Test-mode restriction
+
+Resend's built-in test sender `onboarding@resend.dev` can **only deliver to the
+email address registered on your Resend account**. Any other recipient is
+rejected, and registration then returns `503` on purpose: the API never creates
+an account whose verification email cannot be delivered (see
+`backend/app/routers/auth.py`). This mode is fine for development tests, not for
+public users.
+
+### 1. Verify a domain in Resend
+
+1. Resend dashboard → **Domains** → **Add Domain**.
+2. Enter your real domain, e.g. `example-domain.com` (**example placeholder —
+   replace with the domain you actually own**).
+3. Copy the DNS records Resend shows (SPF/MX/DKIM) and add them in your DNS
+   provider's zone for that domain.
+4. Wait for Resend to show the domain as **Verified** (DNS propagation can take a
+   few minutes up to a few hours).
+
+### 2. Update Render
+
+Render → the `legal-connect-backend` service → **Environment**:
+
+| Variable | Value (example placeholder) |
+|---|---|
+| `RESEND_API_KEY` | keep unchanged — your Resend API key (**secret**, never commit) |
+| `SMTP_FROM_EMAIL` | `Legal Connect <no-reply@example-domain.com>` — an address on your **verified** domain |
+
+Save the variables — Render auto-redeploys. Keep `APP_ENV=production`,
+`FRONTEND_URL` and `CORS_ORIGINS` as they are. `onboarding@resend.dev` is no
+longer the sender once `SMTP_FROM_EMAIL` points at your domain.
+
+### 3. Test after switching
+
+1. Register a new account on the deployed frontend with an email address you
+   control.
+2. Confirm the verification email arrives **from** your domain sender.
+3. Open the emailed link → `POST /api/v1/auth/verify-email` returns 200 and the
+   account is verified.
+4. Log in — `POST /api/v1/auth/login` returns 200.
+5. Optional second delivery check: trigger **Forgot password** and confirm the
+   reset email arrives from the same sender.
+
+Security is unchanged: accounts are still verified before login; nothing is
+auto-verified. The only behavioural change is which `from` address sends the mail.
 
 ---
 
@@ -273,7 +330,7 @@ this work: `c9e8f1a2b3d4`.
 | `MYSQL ... can't connect` on Render | Aiven requires TLS: set `MYSQL_SSL_REQUIRED=true` and `MYSQL_SSL_CA` (the `ca.pem` contents); check the non-standard port and that the service allows your IPs. |
 | Aiven `CREATE DATABASE` permission error on boot | Set `MYSQL_SKIP_DATABASE_CREATION=true` (Aiven pre-creates the database). |
 | WebSocket fails to connect | `VITE_SOCKET_URL`/`VITE_API_URL` host wrong, or backend offline; check the browser's WS URL is `wss://<backend>/api/v1/ws?token=...`. |
-| Registration emails never arrive | SMTP/Resend not configured; unverified accounts cannot log in. |
+| Registration emails never arrive | SMTP/Resend not configured; unverified accounts cannot log in. If using `onboarding@resend.dev`, it only delivers to the email on your Resend account — other recipients need a verified domain (Phase D.5). |
 | Payment **Pay** button shows a config error | `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET` missing → endpoint returns 503 on purpose. |
 | Webhook 400 | `RAZORPAY_WEBHOOK_SECRET` on Render does not match the Razorpay webhook secret. |
 | 401 immediately after login | Tokens are per-session; ensure the backend clock/`JWT_*` settings are consistent and `JWT_SECRET_KEY` did not change mid-session. |
